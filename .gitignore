@@ -13,3 +13,11 @@ node_modules/
 *.pt
 *.safetensors
 *.onnx
+# colcon workspace output
+ros_ws/build/
+ros_ws/install/
+ros_ws/log/
+# rosbags, maps, media, sim logs (all under out/)
+*.db3
+*.mcap
+*.mp4
