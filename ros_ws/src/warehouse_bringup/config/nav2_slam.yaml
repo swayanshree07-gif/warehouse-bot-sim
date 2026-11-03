@@ -1,0 +1,7 @@
+# Overlay on nav2.yaml for Nav2 + live SLAM (Day 14, nav2.launch.py slam:=true).
+# The map starts nearly empty, so the planner may cross unknown space; the
+# global costmap is sized by slam_toolbox's growing /map.
+planner_server:
+  ros__parameters:
+    GridBased:
+      allow_unknown: true

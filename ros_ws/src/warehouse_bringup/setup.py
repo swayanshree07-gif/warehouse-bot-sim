@@ -14,6 +14,7 @@ setup(
         (f"share/{PKG}/launch", glob("launch/*.launch.py")),
         (f"share/{PKG}/urdf", glob("urdf/*.urdf")),
         (f"share/{PKG}/config", glob("config/*.yaml")),
+        (f"share/{PKG}/maps", glob("maps/*")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

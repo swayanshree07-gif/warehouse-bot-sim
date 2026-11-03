@@ -52,6 +52,6 @@ timeout 30 ros2 run nav2_map_server map_saver_cli -f "$MAP" --ros-args -p save_m
   >"$ROOT/out/logs/map_warehouse_saver.log" 2>&1 || { echo "FAIL map_saver (out/logs/map_warehouse_saver.log)"; exit 1; }
 echo "saved $MAP.{pgm,yaml}"
 [ "$RC_DRIVE" = 0 ] && echo "ok   route driven" || echo "FAIL route (waypoint driver rc=$RC_DRIVE)"
-python3 "$ROOT/sim/map_eval.py" "$MAP.yaml" --start="$START" --min-coverage 0.8
+python3 "$ROOT/sim/map_eval.py" "$MAP.yaml" --start="$START" --min-coverage 0.8 --min-iou 0.7
 RC=$?
 [ "$RC_DRIVE" = 0 ] && [ $RC = 0 ] && echo "map_warehouse: PASS" || { echo "map_warehouse: FAIL"; exit 1; }

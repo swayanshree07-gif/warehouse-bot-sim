@@ -1,12 +1,22 @@
 """Compare a saved occupancy map (map_saver PGM + YAML) with the scene's
 ground truth (pure Python, Days 10-11).
 
-  python3 sim/map_eval.py out/maps/warehouse.yaml [--start=-2,0,0] [--min-coverage 0.8]
+  python3 sim/map_eval.py out/maps/warehouse.yaml [--start=-2,0,0]
+      [--min-coverage 0.8] [--min-iou 0.7] [--tol-cells 2]
 
 The map frame is slam_toolbox's, which starts at the robot's first odom pose,
 i.e. the sim start pose (x, y, yaw) in world coordinates. Coverage = fraction
 of ground-truth free cells (room interior minus racks, eroded by MARGIN so
 edge effects don't count) that are free (254) in the trinary PGM.
+
+Occupied IoU (Day 11): a 2D lidar only sees obstacle *surfaces*, so the
+ground-truth occupied set G is the set of map cells that contain a visible
+obstacle edge (an edge whose outside is free floor), and the map's set M is
+its occupied (0) cells. With a tolerance of t cells (Chebyshev dilation, to
+absorb the cell quantisation and a sub-degree SLAM rotation):
+  TP = |M within t of G|, FP = |M| - TP, FN = |G not within t of M|,
+  IoU = TP / (TP + FP + FN).
+t = 0 gives the strict cell-exact IoU (reported for information).
 """
 import argparse
 import math
@@ -108,17 +118,92 @@ def coverage(grid, start, step=0.05):
     return free / len(pts), len(pts)
 
 
+def visible_edge_points(z=0.25, step=0.01):
+    """World points sampled along obstacle edges that face free floor."""
+    rects = G.obstacles_at_height(z)
+    hx, hy = L.ROOM_X / 2, L.ROOM_Y / 2
+    eps = 1e-3
+
+    def free(x, y):
+        if abs(x) >= hx or abs(y) >= hy:
+            return False
+        return not any(r[0] <= x <= r[2] and r[1] <= y <= r[3] for r in rects)
+
+    pts = []
+    for x0, y0, x1, y1 in rects:
+        # (start, end, outward normal) for the four edges
+        for (ax, ay), (bx, by), (nx, ny) in (
+                ((x0, y0), (x1, y0), (0, -1)), ((x1, y0), (x1, y1), (1, 0)),
+                ((x1, y1), (x0, y1), (0, 1)), ((x0, y1), (x0, y0), (-1, 0))):
+            n = max(1, int(math.hypot(bx - ax, by - ay) / step))
+            for i in range(n + 1):
+                x, y = ax + (bx - ax) * i / n, ay + (by - ay) * i / n
+                if free(x + nx * eps, y + ny * eps):
+                    # nudge just inside the obstacle: the hit cell is the one
+                    # the beam endpoint falls into
+                    pts.append((x - nx * eps, y - ny * eps))
+    return pts
+
+
+def _dilate(cells, t):
+    if t <= 0:
+        return set(cells)
+    out = set()
+    for c, r in cells:
+        for dc in range(-t, t + 1):
+            for dr in range(-t, t + 1):
+                out.add((c + dc, r + dr))
+    return out
+
+
+def occupied_iou(grid, start, tol_cells=2):
+    """Returns dict with iou, tp, fp, fn, n_map, n_gt (see module doc)."""
+    gt = set()
+    for x, y in visible_edge_points():
+        mx, my = world_to_map(x, y, start)
+        c = int(math.floor((mx - grid.ox) / grid.res))
+        r = int(math.floor((my - grid.oy) / grid.res))
+        gt.add((c, r))
+    occ = set()
+    for row in range(grid.h):
+        base = row * grid.w
+        r = grid.h - 1 - row
+        for c in range(grid.w):
+            if grid.px[base + c] == 0:
+                occ.add((c, r))
+    gt_d, occ_d = _dilate(gt, tol_cells), _dilate(occ, tol_cells)
+    tp = len(occ & gt_d)
+    fp = len(occ) - tp
+    fn = len(gt - occ_d)
+    denom = tp + fp + fn
+    return {"iou": tp / denom if denom else 0.0, "tp": tp, "fp": fp, "fn": fn,
+            "n_map": len(occ), "n_gt": len(gt)}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("yaml")
     ap.add_argument("--start", default="-2,0,0")
     ap.add_argument("--min-coverage", type=float, default=0.8)
+    ap.add_argument("--min-iou", type=float, default=None,
+                    help="also check occupied-cell IoU (Day 11 gate: 0.7)")
+    ap.add_argument("--tol-cells", type=int, default=2)  # 0.10 m at 5 cm cells
     a = ap.parse_args()
     sx, sy, syaw = (float(v) for v in a.start.split(","))
+    start = (sx, sy, math.radians(syaw))
     grid = GridMap(a.yaml)
-    cov, n = coverage(grid, (sx, sy, math.radians(syaw)))
+    cov, n = coverage(grid, start)
     ok = cov >= a.min_coverage
     print(f"MAP_COVERAGE {cov:.3f} of {n} ground-truth free cells (need >= {a.min_coverage}) -> {'PASS' if ok else 'FAIL'}")
+    if a.min_iou is not None:
+        strict = occupied_iou(grid, start, 0)
+        tol = occupied_iou(grid, start, a.tol_cells)
+        ok_iou = tol["iou"] >= a.min_iou
+        print(f"MAP_IOU_STRICT {strict['iou']:.3f} (cell-exact, info only)")
+        print(f"MAP_IOU {tol['iou']:.3f} tol={a.tol_cells} cells ({a.tol_cells * grid.res:.2f} m): "
+              f"tp={tol['tp']} fp={tol['fp']} fn={tol['fn']} map_occ={tol['n_map']} gt={tol['n_gt']} "
+              f"(need >= {a.min_iou}) -> {'PASS' if ok_iou else 'FAIL'}")
+        ok = ok and ok_iou
     return 0 if ok else 1
 
 

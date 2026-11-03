@@ -43,7 +43,17 @@ ros2 launch warehouse_bringup slam.launch.py          # description + slam_toolb
 python3 scripts/cmd_vel_driver.py 0.5,0,2 0,1,1.5      # open loop: vx,wz,seconds segments
 python3 scripts/waypoint_driver.py h:90 2,0 2,3       # closed loop on /odom: x,y or h:deg
 scripts/map_warehouse.sh   # all-in-one: sim + SLAM + exploration loop -> out/maps/warehouse.{pgm,yaml}
+ros2 launch warehouse_bringup nav2.launch.py           # Nav2 + AMCL on the packaged map
+ros2 launch warehouse_bringup nav2.launch.py slam:=true   # Nav2 on slam_toolbox's live map
+python3 scripts/nav_probe.py --sim-log out/logs/run_sim.log --goal 3.5,0,0   # NavigateToPose (map frame)
 ```
+Nav2 (`config/nav2.yaml`): map_server + AMCL (starts at the spawn pose), NavFn
+(A*) planner, Regulated Pure Pursuit controller (0.4 m/s, publishes `Twist` on
+`/cmd_vel` directly), behaviors, bt_navigator, waypoint_follower; footprint
+from `robot_params.footprint()`. The packaged map
+`ros_ws/src/warehouse_bringup/maps/warehouse.{pgm,yaml}` is a copy of the
+Day 10 `map_warehouse.sh` output; the map frame origin is the spawn pose
+world (-2, 0, 0), so map = world + (2, 0). Run the sim with `--start=-2,0,0`.
 Frames: `map` (slam_toolbox) -> `odom` (sim, starts at the spawn pose) ->
 `base_link` (chassis centre, 0.11 m above floor) -> `base_footprint`, wheels,
 `lift_link`, `laser`. Everything uses sim time (`use_sim_time:=true`).
@@ -61,7 +71,10 @@ scripts/check_scan.sh        # /scan matches a 2D ground-truth raycast within 5 
 scripts/check_launch.sh      # run_sim.sh: all topics, URDF TFs, teleop, clean shutdown (~1.5 min)
 scripts/check_description.sh # colcon build + description launch static TFs (no sim, ~15 s)
 scripts/check_slam.sh        # slam_toolbox /map + map->odom, map grows while driving (~2 min)
-scripts/map_warehouse.sh     # full mapping run, coverage >= 80 % vs scene geometry (~3 min)
+scripts/map_warehouse.sh     # full mapping run, coverage >= 80 % + IoU >= 0.7 vs scene geometry (~3 min)
+scripts/check_map.sh [map.yaml]  # map quality without the sim: coverage + occupied IoU (seconds)
+scripts/check_nav.sh         # Nav2 + AMCL: nodes active, AMCL < 0.2 m, 3 goals < 0.25 m (~2 min)
+scripts/check_nav.sh --slam  # same with slam_toolbox instead of map + AMCL, map must grow (~2 min)
 python3 -m pytest -q tests/  # pure-Python tests (no sim); run with system python3,
                              # not inside env.sh (the Isaac venv has no pytest)
 ```
@@ -83,9 +96,9 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
 | `sim/run_sim.py` | headless sim runner (scene + robot + ROS 2 bridge) |
 | `sim/geometry2d.py` | 2D ground truth (obstacle rectangles, exact raycasts) |
 | `sim/urdf_gen.py` | generates the URDF from `robot_params.py` (`--check` for staleness) |
-| `sim/map_eval.py` | compares a saved map with the scene geometry (coverage) |
+| `sim/map_eval.py` | compares a saved map with the scene geometry (coverage, occupied-cell IoU) |
 | `scripts/` | launchers, drivers, probes and scripted checks (`lib.sh`: cleanup helpers) |
-| `ros_ws/src/warehouse_bringup` | URDF, `description.launch.py`, `slam.launch.py`, slam_toolbox params |
+| `ros_ws/src/warehouse_bringup` | URDF, `description`/`slam`/`nav2` launch files, slam_toolbox + Nav2 params, saved map |
 | `tests/` | pytest tests that run without Isaac Sim |
 | `ros_ws/src/` | own ROS 2 packages (colcon) |
 | `out/` | logs, maps, bags, media (git-ignored, keep < 4 GB) |
@@ -104,7 +117,11 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
 - Day 8: `ros_ws` + `warehouse_bringup` (generated URDF, robot_state_publisher) — done.
 - Day 9: slam_toolbox online async mapping — done.
 - Day 10: scripted exploration + saved map, 100 % coverage of free area — done.
-- Next: Day 11 map quality (IoU vs ground truth), Day 12 Nav2 + AMCL.
+- Day 11: map quality check — occupied-cell IoU 0.915 (2-cell tolerance) — done.
+- Day 12: Nav2 + AMCL on the saved map, all lifecycle nodes active — done.
+- Day 13: NavigateToPose via nav2_simple_commander, goals reached within ~0.15 m — done.
+- Day 14: Nav2 while mapping with slam_toolbox (from an empty map) — done.
+- Next: Day 15 shelf/box registry, Day 16 lift command over ROS 2.
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.
