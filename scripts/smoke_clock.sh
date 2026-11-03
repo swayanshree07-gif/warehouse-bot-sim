@@ -34,7 +34,8 @@ echo "${HZ:-no rate measured}"
 
 wait "$SIM_PID"; RC=$?
 grep -E "SMOKE_(STATS|OK|FAIL)" "$LOG"
-if echo "$MSGS" | grep -q "sec:" && [ $RC -eq 0 ]; then
+# app.close() may exit with rc 0 before sys.exit, so also require SMOKE_OK
+if echo "$MSGS" | grep -q "sec:" && [ $RC -eq 0 ] && grep -q "^SMOKE_OK" "$LOG"; then
   echo "smoke_clock: PASS"; exit 0
 fi
 echo "smoke_clock: FAIL (sim rc=$RC)"; tail -20 "$LOG"; exit 1
