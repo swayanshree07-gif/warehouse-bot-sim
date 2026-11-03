@@ -27,7 +27,7 @@ done
 grep -q "SMOKE_READY" "$LOG" || { echo "sim never became ready"; exit 1; }
 
 echo "sim ready; listening for /clock on domain $ROS_DOMAIN_ID"
-MSGS=$(timeout 30 ros2 topic echo --once /clock rosgraph_msgs/msg/Clock 2>&1)
+MSGS=$(timeout 30 ros2 topic echo --once --no-daemon /clock rosgraph_msgs/msg/Clock 2>&1)
 echo "$MSGS"
 HZ=$(timeout 15 ros2 topic hz /clock --window 50 2>&1 | grep -m1 "average rate")
 echo "${HZ:-no rate measured}"

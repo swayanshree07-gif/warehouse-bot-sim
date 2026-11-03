@@ -12,6 +12,9 @@ kill_kit_leftovers() {
     sleep 1
   done
   pkill -9 -f "$_KIT_TELEMETRY_PAT" 2>/dev/null
+  # some ros2 CLI verbs (e.g. `topic hz`) start a ros2 daemon; stop ours
+  # (only the daemon of this shell's ROS_DOMAIN_ID=21 is affected)
+  command -v ros2 >/dev/null && timeout 10 ros2 daemon stop >/dev/null 2>&1
   true
 }
 
