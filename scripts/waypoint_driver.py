@@ -3,6 +3,7 @@
   python3 scripts/waypoint_driver.py STEP [STEP ...]
   STEP = "x,y"  drive to that point in the odom frame (turn towards it first)
          "h:deg" turn in place to that absolute odom heading
+         "tol:m" position tolerance for the following points (default 0.08)
 Odom starts at the robot's pose at sim start (x forward). Prints
 `WAYPOINT_DONE x= y= yaw=` at the end; exit 1 on timeout. Speeds stay well
 below robot limits so the in-place turns don't slip much. Used by
@@ -27,7 +28,9 @@ def wrap(a):
 def main(argv):
     steps = []
     for a in argv:
-        if a.startswith("h:"):
+        if a.startswith("tol:"):
+            steps.append(("t", float(a[4:])))
+        elif a.startswith("h:"):
             steps.append(("h", math.radians(float(a[2:]))))
         else:
             x, y = (float(v) for v in a.split(","))
@@ -67,8 +70,12 @@ def main(argv):
     if "pose" not in st:
         print("WAYPOINT no /odom", flush=True)
         return 1
+    pos_tol = POS_TOL
     for kind, val in steps:
         deadline = time.time() + 60
+        if kind == "t":
+            pos_tol = val
+            continue
         if kind == "h":
             ok = turn_to(val, deadline) and ok
             continue
@@ -79,9 +86,11 @@ def main(argv):
             rclpy.spin_once(node, timeout_sec=0.05)
             x, y, yaw = st["pose"]
             d = math.hypot(gx - x, gy - y)
-            if d < POS_TOL:
+            if d < pos_tol:
                 break
             e = wrap(math.atan2(gy - y, gx - x) - yaw)
+            if d < 0.15 and abs(e) > math.pi / 2:
+                break   # overshot the point: stop rather than circle back
             v = min(V_MAX, 0.8 * d) * max(0.0, math.cos(e))
             cmd(max(v, 0.05), max(-W_MAX, min(W_MAX, 1.5 * e)))
         else:

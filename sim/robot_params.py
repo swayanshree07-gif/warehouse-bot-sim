@@ -40,6 +40,19 @@ LASER_RANGE = (0.12, 12.0)         # m (min, max)
 LASER_RES_DEG = 1.0                # 360 rays
 LASER_RATE_HZ = 10.0               # published every N physics ticks
 
+# Box handling (Days 15-17): a fork-style "virtual gripper" on the lift
+# carriage. At the dock pose the box centre is GRIP_REACH ahead of base_link;
+# attach creates a fixed joint lift<->box (keeping the current relative pose)
+# if a box centre is within GRIP_TOL of that grip point, then the lift raises
+# LIFT_CLEARANCE so the box comes off the rack top. Place = the reverse.
+GRIP_REACH = 0.50                  # m, base_link -> box centre (x forward); slot
+                                   # centres are 0.2 m inside the rack face, so
+                                   # the chassis front stops 5 cm short of it
+GRIP_TOL = 0.10                    # m, max grip point -> box centre distance
+LIFT_CLEARANCE = 0.03              # m, lift height while carrying a box
+DOCK_STANDOFF = GRIP_REACH         # base_link -> slot centre at the dock pose
+APPROACH_STANDOFF = 0.90           # base_link -> slot centre at the Nav2 goal
+
 MAX_LINEAR_SPEED = 0.8             # m/s (used by Nav2 later)
 MAX_ANGULAR_SPEED = 2.0            # rad/s
 

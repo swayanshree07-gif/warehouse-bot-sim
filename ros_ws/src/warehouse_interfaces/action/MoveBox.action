@@ -1,0 +1,13 @@
+# Move one box to a shelf slot (served by task_manager on /move_box).
+string box_id          # e.g. "box_03"
+string target_shelf    # e.g. "shelf_D"
+int32 target_slot -1   # slot index; -1 = first free slot on target_shelf
+---
+bool success
+string message         # failure reason, e.g. "unknown box", "slot occupied", "navigation failed"
+string final_shelf
+int32 final_slot
+float32 place_error    # m, box centre to slot centre after placing (ground truth)
+---
+string state           # NAV_TO_PICK, DOCK_PICK, LIFT, NAV_TO_PLACE, DOCK_PLACE, LOWER, RETREAT
+float32 progress       # 0..1
