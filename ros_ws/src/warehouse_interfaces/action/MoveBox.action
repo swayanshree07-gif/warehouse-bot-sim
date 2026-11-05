@@ -9,5 +9,5 @@ string final_shelf
 int32 final_slot
 float32 place_error    # m, box centre to slot centre after placing (ground truth)
 ---
-string state           # NAV_TO_PICK, DOCK_PICK, LIFT, NAV_TO_PLACE, DOCK_PLACE, LOWER, RETREAT
+string state           # NAV_TO_PICK, DOCK_PICK, LIFT, UNDOCK_PICK, NAV_TO_PLACE, DOCK_PLACE, LOWER, RETREAT, DONE
 float32 progress       # 0..1
