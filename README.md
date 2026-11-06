@@ -26,6 +26,24 @@ source ./env.sh          # also sources ros_ws/install if it exists
 ```
 
 ## Run
+Quick start: everything with one command (sim + Nav2 + task manager):
+```bash
+scripts/launch_all.sh [--slam] [--seconds 600] [--record [DIR]]
+# wait for ALL_READY, then in a second shell:
+source ./env.sh && python3 scripts/move_box.py box_09 shelf_D
+```
+`launch_all.sh` starts `run_sim.sh` (spawn at world (-2, 0) = map origin), Nav2
+(AMCL on the packaged map, or slam_toolbox from an empty map with `--slam`) and
+`task_manager` (`backend:=ros`). Then it runs `scripts/health_check.py` (topics
+`/clock /odom /scan /joint_states /lift/height /boxes /map` have messages, TF
+map/odom->base_link, Nav2 lifecycle nodes `active`, gripper services, `/move_box`
+action server) and prints `ALL_READY`. `--record` also records a filtered rosbag
+(mcap + zstd, about 2 MB per minute) into `out/bags/run_<date>_<time>/` or DIR. The
+stack stops when the sim run time ends, when any part exits, or on Ctrl-C/SIGTERM.
+The recorder is closed first, then everything else is stopped, and
+`ALL_STOPPED` is printed. Logs: `out/logs/launch_all_*.log`.
+
+The parts can also be started one by one:
 ```bash
 scripts/run_sim.sh --seconds 600 [--start=-2,0,0]   # headless sim + ROS 2 bridge
 ```
@@ -122,6 +140,10 @@ scripts/check_task_manager.sh  # MoveBox action server, mock backend: success, i
 scripts/check_move_box.sh [BOX:SHELF[:SLOT] ...]  # end-to-end in the sim: Nav2 + task_manager, box on target slot (~2-3 min)
 scripts/check_dock.sh [--slot shelf_X:N ...] [--no-lidar]  # 5 docking trials vs ground truth, each < 3 cm / 3 deg (~3.5 min)
 scripts/check_task_queue.sh  # in the sim: /boxes ground truth, 4 queued goals (2 succeed, missing box + occupied slot abort) (~4 min)
+scripts/check_launch_all.sh [--slam]  # launch_all.sh --record: ALL_READY, health check, 1 MoveBox, clean SIGTERM stop, bag valid (~3 min)
+scripts/check_launch_all.sh --supervise  # sim ends by itself after 45 s -> whole stack stops, no leftovers (~1.5 min)
+python3 scripts/health_check.py [--slam]  # health of a running stack (HEALTH_PASS / HEALTH_FAIL)
+python3 scripts/check_bag.py out/bags/<dir>  # bag < 300 MB with all key topics (no ROS needed)
 python3 -m pytest -q tests/  # pure-Python tests (no sim); run with system python3,
                              # not inside env.sh (the Isaac venv has no pytest)
 ```
@@ -188,7 +210,11 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
 - Day 23: ground-truth `/boxes` (BoxStates, ~10 Hz, map frame) from the sim;
   the task manager syncs its belief before each goal and reports the real
   `place_error` — done.
-- Next: Day 24 single launch script `scripts/launch_all.sh` + health check.
+- Day 24: single launch script `scripts/launch_all.sh` + `health_check.py`
+  (19 items), supervision and clean shutdown; AMCL and SLAM modes — done.
+- Day 25: rosbag recording (`launch_all.sh --record`, 15 topics incl. the
+  MoveBox action status/feedback, ~2.6 MB for a 75 s task) — done.
+- Next: Day 26 screenshots/video from a headless sim camera into `out/media/`.
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.
