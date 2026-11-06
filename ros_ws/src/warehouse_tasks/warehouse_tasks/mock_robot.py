@@ -7,13 +7,16 @@ and by `task_manager --ros-args -p backend:=mock` (no sim needed).
   fail_at   {method_name: message} - that call fails (once per entry use
             `fail_once`), e.g. {"navigate": "goal unreachable"}
   step_time seconds each call sleeps (to make feedback/cancel observable)
+  missing   box ids that are not where the registry says (moved to the floor
+            far away), like the sim's /sim/remove_box (Day 22)
 """
 import math
 import time
 
 
 class MockRobot:
-    def __init__(self, registry, step_time=0.0, fail_at=None, fail_once=False, grip_tol=0.10):
+    def __init__(self, registry, step_time=0.0, fail_at=None, fail_once=False, grip_tol=0.10,
+                 missing=()):
         self.reg = registry
         self.step_time = step_time
         self.fail_at = dict(fail_at or {})
@@ -27,6 +30,8 @@ class MockRobot:
         self.box_pos = {}
         for b, (shelf, idx) in registry.boxes.items():
             self.box_pos[b] = tuple(registry.slot(shelf, idx)["center"])
+        for i, b in enumerate(missing):
+            self.box_pos[b] = (6.6, -3.6 + 0.3 * i, 0.1)
 
     def _step(self, name, arg=None):
         self.calls.append((name, arg))
@@ -108,3 +113,11 @@ class MockRobot:
 
     def box_position(self, box_id):
         return self.box_pos.get(box_id)
+
+    def box_states(self):
+        """Ground truth {box_id: (shelf, slot, held)} like RosRobot's /boxes."""
+        out = {}
+        for b, p in self.box_pos.items():
+            shelf, slot = (None, -1) if b == self.held else self.reg.slot_at(p)
+            out[b] = (shelf or "", slot, b == self.held)
+        return out

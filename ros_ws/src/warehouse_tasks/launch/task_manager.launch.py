@@ -2,6 +2,7 @@
 
   ros2 launch warehouse_tasks task_manager.launch.py [backend:=mock|ros]
       [use_sim_time:=true] [mock_fail:=navigate:unreachable] [lidar_dock:=true]
+      [ground_truth:=true] [mock_missing:=box_03,box_04]
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -17,6 +18,8 @@ def generate_launch_description():
         DeclareLaunchArgument("mock_step_time", default_value="0.2"),
         DeclareLaunchArgument("mock_fail", default_value=""),
         DeclareLaunchArgument("lidar_dock", default_value="true"),
+        DeclareLaunchArgument("ground_truth", default_value="true"),
+        DeclareLaunchArgument("mock_missing", default_value=""),
     ]
     node = Node(
         package="warehouse_tasks", executable="task_manager", name="task_manager", output="screen",
@@ -26,6 +29,8 @@ def generate_launch_description():
             "mock_step_time": ParameterValue(LaunchConfiguration("mock_step_time"), value_type=float),
             "mock_fail": ParameterValue(LaunchConfiguration("mock_fail"), value_type=str),
             "lidar_dock": ParameterValue(LaunchConfiguration("lidar_dock"), value_type=bool),
+            "ground_truth": ParameterValue(LaunchConfiguration("ground_truth"), value_type=bool),
+            "mock_missing": ParameterValue(LaunchConfiguration("mock_missing"), value_type=str),
         }],
     )
     return LaunchDescription(args + [node])

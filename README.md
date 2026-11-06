@@ -121,6 +121,7 @@ scripts/check_interfaces.sh  # warehouse_interfaces builds, interface show, Pyth
 scripts/check_task_manager.sh  # MoveBox action server, mock backend: success, invalid goals, queue, cancel, failure (no sim, ~30 s)
 scripts/check_move_box.sh [BOX:SHELF[:SLOT] ...]  # end-to-end in the sim: Nav2 + task_manager, box on target slot (~2-3 min)
 scripts/check_dock.sh [--slot shelf_X:N ...] [--no-lidar]  # 5 docking trials vs ground truth, each < 3 cm / 3 deg (~3.5 min)
+scripts/check_task_queue.sh  # in the sim: /boxes ground truth, 4 queued goals (2 succeed, missing box + occupied slot abort) (~4 min)
 python3 -m pytest -q tests/  # pure-Python tests (no sim); run with system python3,
                              # not inside env.sh (the Isaac venv has no pytest)
 ```
@@ -143,7 +144,8 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
 | `sim/geometry2d.py` | 2D ground truth (obstacle rectangles, exact raycasts) |
 | `sim/urdf_gen.py` | generates the URDF from `robot_params.py` (`--check` for staleness) |
 | `sim/registry_gen.py` | generates the shelf/box registry YAML (slot centres, approach/dock poses) |
-| `sim/box_handler.py` | in-sim rclpy node: lift command, virtual gripper attach/detach, box ground truth |
+| `sim/box_handler.py` | in-sim rclpy node: lift command, virtual gripper attach/detach, `/boxes` ground truth, `/sim/remove_box` test hook |
+| `sim/box_state.py` | box -> shelf slot classification for `/boxes` (pure Python) |
 | `sim/map_eval.py` | compares a saved map with the scene geometry (coverage, occupied-cell IoU) |
 | `scripts/` | launchers, drivers, probes and scripted checks (`lib.sh`: cleanup helpers) |
 | `ros_ws/src/warehouse_bringup` | URDF, `description`/`slam`/`nav2` launch files, slam_toolbox + Nav2 params, saved map, registry |
@@ -180,8 +182,13 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   3 cm / 3 deg (worst 1.0 cm, 1.4 deg); the AMCL-only dock managed 2/5 — done.
 - Day 21: end-to-end `MoveBox` via the action in the sim: boxes placed 1.3 cm
   from the slot centre — done.
-- Next: Day 22 multiple tasks + failure handling in the sim, Day 23
-  ground-truth `/boxes` topic.
+- Day 22: queued tasks (FIFO tickets) with failure handling: missing box and
+  occupied slot abort with a reason, the other goals still succeed — done
+  (an unreachable Nav2 goal is only tested with the mock backend).
+- Day 23: ground-truth `/boxes` (BoxStates, ~10 Hz, map frame) from the sim;
+  the task manager syncs its belief before each goal and reports the real
+  `place_error` — done.
+- Next: Day 24 single launch script `scripts/launch_all.sh` + health check.
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.

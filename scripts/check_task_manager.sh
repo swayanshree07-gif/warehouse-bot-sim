@@ -7,6 +7,8 @@
 #     after the other; first gets slot 0 (freed by 1), second gets slot 2
 #  5. box_02 -> shelf_A slot 0 with --cancel-after: result canceled
 #  6. a second node with mock_fail=navigate:unreachable: aborts "NAV_TO_PICK failed"
+#  7. a third node with mock_missing=box_03 (ground-truth sync, Day 22/23):
+#     box_03 aborts "missing", box_04 still succeeds with place_error 0
 # Exit 0 = PASS. Logs: out/logs/check_task_manager*.log
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$ROOT/out/logs"
@@ -59,7 +61,8 @@ expect "occupied slot aborts" '"status": "aborted".*slot occupied: shelf_D slot 
 # two goals at once: the second must wait for the first (queue), then take slot 2
 $MB box_00 shelf_D >"$ROOT/out/logs/check_task_manager_q1.log" 2>&1 &
 Q1=$!
-sleep 0.3
+# wait until goal 1 is accepted, so the server sees them in this order
+for _ in $(seq 1 100); do grep -q MOVE_BOX_ACCEPTED "$ROOT/out/logs/check_task_manager_q1.log" && break; sleep 0.1; done
 $MB box_01 shelf_D >"$ROOT/out/logs/check_task_manager_q2.log" 2>&1 &
 Q2=$!
 wait $Q1; R1=$?; wait $Q2; R2=$?
@@ -67,7 +70,7 @@ if [ $R1 -eq 0 ] && [ $R2 -eq 0 ] \
    && grep -q '"final_slot": 0' "$ROOT/out/logs/check_task_manager_q1.log" \
    && grep -q '"final_slot": 2' "$ROOT/out/logs/check_task_manager_q2.log"; then
   echo "ok   two queued goals succeed (slots 0 and 2)"
-else echo "FAIL queued goals (rc $R1 $R2)"; tail -2 "$ROOT"/out/logs/check_task_manager_q*.log; FAILS=$((FAILS + 1)); fi
+else echo "FAIL queued goals (rc $R1 $R2)"; tail -n 2 "$ROOT"/out/logs/check_task_manager_q*.log; FAILS=$((FAILS + 1)); fi
 ORDER=$(grep 'TASK_RESULT {"box_id": "box_0[01]"' "$TLOG" | grep '"success": true' | grep -o '"box_id": "box_0[01]"' | grep -o 'box_0[01]' | paste -sd' ')
 [ "$ORDER" = "box_00 box_01" ] && echo "ok   queued goals ran in order ($ORDER)" \
   || { echo "FAIL queue order: $ORDER"; FAILS=$((FAILS + 1)); }
@@ -79,6 +82,11 @@ start_tm "${TLOG%.log}_fail.log" mock_fail:=navigate:unreachable || exit 1
 expect "mocked nav failure aborts with reason" '"status": "aborted".*NAV_TO_PICK failed: unreachable' box_09 shelf_D
 stop_tm
 
-grep -qE "Traceback|\[ERROR\]" "$TLOG" "${TLOG%.log}_fail.log" && { echo "FAIL errors in node log"; FAILS=$((FAILS + 1)); }
+start_tm "${TLOG%.log}_missing.log" mock_missing:=box_03 || exit 1
+expect "missing box aborts" '"status": "aborted".*box_03 is not on any shelf slot \(missing\)' box_03 shelf_D
+expect "other box still moves (place_error 0)" '"status": "succeeded".*"place_error": 0.0' box_04 shelf_D
+stop_tm
+
+grep -qE "Traceback|\[ERROR\]" "$TLOG" "${TLOG%.log}_fail.log" "${TLOG%.log}_missing.log" && { echo "FAIL errors in node log"; FAILS=$((FAILS + 1)); }
 [ $FAILS -eq 0 ] && { echo "check_task_manager: PASS"; exit 0; }
 echo "check_task_manager: FAIL ($FAILS)"; exit 1

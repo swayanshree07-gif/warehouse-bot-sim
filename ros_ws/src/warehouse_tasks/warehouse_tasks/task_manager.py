@@ -10,9 +10,13 @@ Parameters
   mock_fail  "method:message" makes that mocked call fail, e.g. "navigate:unreachable"
   lidar_dock true (default): dock on the lidar rack-face measurement (Day 20);
              false: AMCL-only dock (the Day 21 behaviour)
+  ground_truth  true (default): before each goal, sync the box belief from the
+             backend's box_states() (/boxes from the sim; MockRobot's own state)
+  mock_missing  comma-separated box ids the mock robot cannot find (Day 22 test)
 
-Goals are accepted and run one at a time in arrival order (a lock queues
-them). Each goal is validated against the current box belief when it starts,
+Goals are accepted and run one at a time in arrival order: each accepted goal
+gets a ticket and waits for its turn (FIFO; a plain Lock does not guarantee
+the wake-up order). Each goal is validated against the current box belief when it starts,
 so an invalid goal (unknown box/shelf, slot occupied, no free slot) aborts with
 the reason in result.message. After a success the belief is updated.
 Logs one `TASK_RESULT {json}` line per goal.
@@ -51,6 +55,8 @@ class TaskManager(Node):
         self.declare_parameter("mock_step_time", 0.2)
         self.declare_parameter("mock_fail", "")
         self.declare_parameter("lidar_dock", True)
+        self.declare_parameter("ground_truth", True)
+        self.declare_parameter("mock_missing", "")
         path = self.get_parameter("registry").value
         self.reg = Registry.load(path)
         backend = self.get_parameter("backend").value
@@ -58,47 +64,78 @@ class TaskManager(Node):
             fail = self.get_parameter("mock_fail").value
             fail_at = dict([fail.split(":", 1)]) if fail else {}
             self.robot = MockRobot(self.reg, step_time=self.get_parameter("mock_step_time").value,
-                                   fail_at=fail_at)
+                                   fail_at=fail_at,
+                                   missing=[b for b in self.get_parameter("mock_missing").value.split(",") if b])
         elif backend == "ros":
             from .ros_robot import RosRobot
             self.robot = RosRobot(self, registry=self.reg,
                                   lidar_dock=self.get_parameter("lidar_dock").value)
         else:
             raise ValueError(f"unknown backend '{backend}' (mock|ros)")
-        self.lock = threading.Lock()
+        self.turn = threading.Condition()
+        self.tickets = {}          # goal uuid bytes -> ticket number
+        self.next_ticket, self.serving = 0, 0
         self.server = ActionServer(
             self, MoveBox, "move_box", execute_callback=self.execute,
             goal_callback=lambda g: GoalResponse.ACCEPT,
             cancel_callback=lambda h: CancelResponse.ACCEPT,
+            handle_accepted_callback=self._accepted,
             callback_group=ReentrantCallbackGroup())
         self.get_logger().info(f"task_manager ready: backend={backend} registry={path} "
                                f"boxes={len(self.reg.boxes)}")
 
+    def _accepted(self, gh):
+        with self.turn:
+            self.tickets[bytes(gh.goal_id.uuid)] = self.next_ticket
+            self.next_ticket += 1
+        gh.execute()
+
     def execute(self, gh):
+        with self.turn:   # FIFO queue: wait until this goal's ticket is served
+            ticket = self.tickets.pop(bytes(gh.goal_id.uuid))
+            self.turn.wait_for(lambda: self.serving == ticket)
+        try:
+            return self._run(gh)
+        finally:
+            with self.turn:
+                self.serving += 1
+                self.turn.notify_all()
+
+    def _run(self, gh):
         g = gh.request
-        with self.lock:   # one task at a time; later goals wait here (queue)
-            res = MoveBox.Result()
-            self.get_logger().info(f"goal: {g.box_id} -> {g.target_shelf} slot {g.target_slot}")
-            try:
-                plan = self.reg.plan(g.box_id, g.target_shelf, g.target_slot)
-            except TaskError as e:
-                res.success, res.message = False, str(e)
-                return self._finish(gh, res, g, aborted=True)
+        res = MoveBox.Result()
+        self.get_logger().info(f"goal: {g.box_id} -> {g.target_shelf} slot {g.target_slot}")
+        self._sync_ground_truth()
+        try:
+            plan = self.reg.plan(g.box_id, g.target_shelf, g.target_slot)
+        except TaskError as e:
+            res.success, res.message = False, str(e)
+            return self._finish(gh, res, g, aborted=True)
 
-            def feedback(state, progress):
-                fb = MoveBox.Feedback()
-                fb.state, fb.progress = state, float(progress)
-                gh.publish_feedback(fb)
-                self.get_logger().info(f"state {state} ({progress:.2f})")
+        def feedback(state, progress):
+            fb = MoveBox.Feedback()
+            fb.state, fb.progress = state, float(progress)
+            gh.publish_feedback(fb)
+            self.get_logger().info(f"state {state} ({progress:.2f})")
 
-            out = run_move_box(self.robot, plan, self.reg.lift_clearance, feedback=feedback,
-                               is_canceled=lambda: gh.is_cancel_requested)
-            res.success, res.message = out.success, out.message
-            res.final_shelf, res.final_slot = out.shelf, out.slot
-            res.place_error = float(out.place_error)
-            if out.success:
-                self.reg.move(g.box_id, out.shelf, out.slot)
-            return self._finish(gh, res, g, aborted=not out.success, canceled=out.canceled)
+        out = run_move_box(self.robot, plan, self.reg.lift_clearance, feedback=feedback,
+                           is_canceled=lambda: gh.is_cancel_requested)
+        res.success, res.message = out.success, out.message
+        res.final_shelf, res.final_slot = out.shelf, out.slot
+        res.place_error = float(out.place_error)
+        if out.success:
+            self.reg.move(g.box_id, out.shelf, out.slot)
+        return self._finish(gh, res, g, aborted=not out.success, canceled=out.canceled)
+
+    def _sync_ground_truth(self):
+        if not self.get_parameter("ground_truth").value or not hasattr(self.robot, "box_states"):
+            return
+        states = self.robot.box_states()
+        if states is None:
+            self.get_logger().warn("no ground-truth box states (/boxes); using the belief")
+            return
+        for c in self.reg.sync(states):
+            self.get_logger().warn(f"ground truth differs from belief: {c}")
 
     def _finish(self, gh, res, g, aborted=False, canceled=False):
         if canceled:
@@ -124,7 +161,9 @@ def main():
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
     node = TaskManager()
-    ex = MultiThreadedExecutor(num_threads=4)
+    # each queued goal blocks one thread while it waits for its turn; keep
+    # enough spare threads for /tf, /scan, /boxes and the Nav2/gripper futures
+    ex = MultiThreadedExecutor(num_threads=16)
     ex.add_node(node)
     try:
         while rclpy.ok() and not stop.is_set():

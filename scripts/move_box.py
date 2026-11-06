@@ -1,7 +1,7 @@
 """MoveBox action client (Day 19).
 
   python3 scripts/move_box.py BOX SHELF [SLOT] [--cancel-after S] [--timeout S]
-Sends a goal to /move_box, prints `MOVE_BOX_FEEDBACK state= progress=` lines
+Sends a goal to /move_box, prints `MOVE_BOX_ACCEPTED` once accepted, `MOVE_BOX_FEEDBACK state= progress=` lines
 and one `MOVE_BOX_RESULT {json}` line (status = succeeded|aborted|canceled).
 Exit 0 only if the goal succeeded. Needs `source env.sh` and a built ros_ws.
 """
@@ -44,6 +44,7 @@ def main():
         if h is None or not h.accepted:
             print("MOVE_BOX_RESULT " + json.dumps({"status": "rejected"}), flush=True)
             return 1
+        print("MOVE_BOX_ACCEPTED", flush=True)
         rfut = h.get_result_async()
         t0 = time.time()
         canceled = False

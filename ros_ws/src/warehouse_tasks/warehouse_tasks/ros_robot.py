@@ -14,6 +14,9 @@ other threads, so every subscription/client here uses a reentrant group.
   undock    reverse straight to the approach pose, keeping the heading
   lift      std_msgs/Float64 `lift/command`, wait for `lift/height`
   attach    std_srvs/Trigger `gripper/attach` / `gripper/detach`
+  box_states / box_position  warehouse_interfaces/BoxStates `boxes` (sim
+            ground truth, Day 23): the task manager's belief sync and the
+            result's place_error
 """
 import math
 import time
@@ -28,6 +31,7 @@ from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from std_msgs.msg import Float64
 from std_srvs.srv import Trigger
+from warehouse_interfaces.msg import BoxStates
 
 from . import rack_align
 from .line_track import track_cmd, wrap
@@ -73,6 +77,8 @@ class RosRobot:
         self.height = None
         node.create_subscription(Float64, "lift/height", self._on_height, 10, callback_group=cg)
         node.create_subscription(LaserScan, "scan", self._on_scan, 5, callback_group=cg)
+        self.boxes_msg, self.boxes_count = None, 0
+        node.create_subscription(BoxStates, "boxes", self._on_boxes, 5, callback_group=cg)
         self.cli = {v: node.create_client(Trigger, f"gripper/{v}", callback_group=cg)
                     for v in ("attach", "detach")}
         self.tf_buf = tf2_ros.Buffer()
@@ -82,6 +88,19 @@ class RosRobot:
 
     def _on_height(self, msg):
         self.height = msg.data
+
+    def _on_boxes(self, msg):
+        self.boxes_msg = msg
+        self.boxes_count += 1
+
+    def _fresh_boxes(self, timeout=2.0):
+        """A /boxes message received after this call started, or None."""
+        n0, t0 = self.boxes_count, time.time()
+        while self.boxes_count <= n0:
+            if time.time() - t0 > timeout:
+                return None
+            time.sleep(0.02)
+        return self.boxes_msg
 
     def _on_scan(self, msg):
         self.scan = msg
@@ -285,5 +304,16 @@ class RosRobot:
     def detach(self):
         return self._trigger("detach")
 
-    def box_position(self, _box_id):
-        return None   # ground truth comes with the /boxes topic (Day 23)
+    def box_states(self):
+        """{box_id: (shelf, slot, held)} from /boxes, or None if not published."""
+        m = self._fresh_boxes()
+        if m is None:
+            return None
+        return {b.id: (b.shelf, int(b.slot), bool(b.held)) for b in m.boxes}
+
+    def box_position(self, box_id):
+        m = self._fresh_boxes()
+        for b in (m.boxes if m is not None else []):
+            if b.id == box_id:
+                return b.position.x, b.position.y, b.position.z
+        return None

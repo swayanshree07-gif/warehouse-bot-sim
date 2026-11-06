@@ -12,6 +12,11 @@ frame from sim/run_sim.py. Import after SimulationApp exists.
                                          GRIP_REACH ahead of base_link
   /gripper/detach std_srvs/Trigger        release the held box
   /gripper/held   std_msgs/String (pub)   held box id or "" (~10 Hz)
+  /boxes          warehouse_interfaces/BoxStates (pub, ~10 Hz, Day 23):
+                  ground truth of every box (map frame, shelf/slot from
+                  sim/box_state.py, held flag)
+  /sim/remove_box std_msgs/String (sub)   test hook (Day 22): teleport that box
+                  onto the floor in the SE corner, i.e. it goes "missing"
 
 Attach creates a UsdPhysics.FixedJoint lift <-> box at the *current* relative
 pose (no snapping), so the box rides on the lift carriage; detach removes the
@@ -22,17 +27,24 @@ reports the box id in its message.
 import math
 
 import rclpy
+import rclpy.parameter
 from rclpy.signals import SignalHandlerOptions
 from pxr import Gf, UsdPhysics
 from std_msgs.msg import Float64, String
 from std_srvs.srv import Trigger
 
+import box_state
+import registry_gen
 import robot_params as P
 import warehouse_layout as L
+from geometry_msgs.msg import Point
+from warehouse_interfaces.msg import BoxState, BoxStates
 from isaacsim.core.utils.xforms import get_world_pose
 from robot import set_lift_height
 
 GRIP_JOINT = "/World/GripJoint"
+# where /sim/remove_box puts boxes (world frame, floor of the SE corner, off all routes)
+REMOVED_AT = (4.6, -3.6)
 
 
 def _pose(path):
@@ -58,12 +70,20 @@ class BoxHandler:
         if not rclpy.ok():
             # run_sim.py owns SIGINT/SIGTERM (graceful stop); keep rclpy out of it
             rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
-        self.node = rclpy.create_node("sim_box_handler")
+        # sim time (the OmniGraph /clock) for the /boxes header stamps
+        self.node = rclpy.create_node("sim_box_handler", parameter_overrides=[
+            rclpy.parameter.Parameter("use_sim_time", rclpy.parameter.Parameter.Type.BOOL, True)])
         self.node.create_subscription(Float64, "lift/command", self._on_lift, 10)
         self.pub_h = self.node.create_publisher(Float64, "lift/height", 10)
         self.pub_held = self.node.create_publisher(String, "gripper/held", 10)
         self.node.create_service(Trigger, "gripper/attach", self._on_attach)
         self.node.create_service(Trigger, "gripper/detach", self._on_detach)
+        self.pub_boxes = self.node.create_publisher(BoxStates, "boxes", 10)
+        self.node.create_subscription(String, "sim/remove_box", self._on_remove, 10)
+        reg = registry_gen.build()
+        self.slots = box_state.slot_table(reg)
+        self.to_map = box_state.world_to_map_fn(reg["map_origin_in_world"])
+        self.removed = 0
         self._rest_dz = (P.chassis_top_z() + P.LIFT_SIZE[2] / 2) - P.chassis_centre_z()
 
     # --- state ---------------------------------------------------------------
@@ -119,6 +139,34 @@ class BoxHandler:
         self.events.append(f"GRIP_DETACH ok={int(res.success)} msg={res.message.replace(' ', '_')}")
         return res
 
+    def _on_remove(self, msg):
+        name = msg.data.strip()
+        if name not in self.boxes or name == self.held:
+            self.events.append(f"BOX_REMOVE ok=0 box={name or '-'}")
+            return
+        x, y = REMOVED_AT[0], REMOVED_AT[1] + 0.3 * self.removed
+        self.removed += 1
+        prim = self.stage.GetPrimAtPath(self.boxes[name])
+        # authoring the translate op on a rigid body during play teleports it in PhysX
+        prim.GetAttribute("xformOp:translate").Set(Gf.Vec3d(x, y, L.BOX_SIZE / 2 + 0.002))
+        for a in ("physics:velocity", "physics:angularVelocity"):
+            attr = prim.GetAttribute(a)
+            if attr:
+                attr.Set(Gf.Vec3f(0, 0, 0))
+        self.events.append(f"BOX_REMOVE ok=1 box={name} to={x:.2f},{y:.2f}")
+
+    def box_states(self, stamp=None):
+        msg = BoxStates()
+        msg.header.frame_id = "map"
+        if stamp is not None:
+            msg.header.stamp = stamp
+        for name, p in self.box_positions().items():
+            m = self.to_map((float(p[0]), float(p[1]), float(p[2])))
+            shelf, slot = box_state.classify(m, self.slots, held=(name == self.held))
+            msg.boxes.append(BoxState(id=name, shelf=shelf, slot=slot, held=(name == self.held),
+                                      position=Point(x=m[0], y=m[1], z=m[2])))
+        return msg
+
     def _make_joint(self, name):
         pl, ql = _pose(self.lift)
         pb, qb = _pose(self.boxes[name])
@@ -141,6 +189,7 @@ class BoxHandler:
     def publish(self):
         self.pub_h.publish(Float64(data=self.lift_height()))
         self.pub_held.publish(String(data=self.held))
+        self.pub_boxes.publish(self.box_states(self.node.get_clock().now().to_msg()))
 
     def status_line(self, t):
         parts = [f"BOXES t={t:.2f} lift={self.lift_height():.3f} held={self.held or '-'}"]
