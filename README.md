@@ -76,11 +76,20 @@ the `MoveBox` action on `/move_box`. Each goal is checked against the
 registry and the node's own record of which box is on which slot (unknown
 box/shelf, occupied slot, no free slot → aborted with the reason). Goals run
 one at a time in arrival order. The steps are NAV_TO_PICK (Nav2 to the slot's
-approach pose) → DOCK_PICK (line-tracking final approach on TF map->base_link)
-→ LIFT (attach + lift 3 cm) → UNDOCK_PICK (reverse to the approach pose) →
+approach pose) → DOCK_PICK (lidar dock, see below) → LIFT (attach + lift 3 cm) → UNDOCK_PICK (reverse to the approach pose) →
 NAV_TO_PLACE → DOCK_PLACE → LOWER (lift 0 + detach) → RETREAT. If a step fails
 at a rack and no box is held, the robot backs out to the approach pose first.
 `backend:=mock` runs the same state machine without the sim (for tests).
+
+Docking (`rack_align.py` + `ros_robot.py`): at the approach pose the robot faces
+the rack and fits the rack's front face in `/scan` (line fit seeded by the
+beams straight ahead, both rack corners confirmed by the next beam outward).
+Together with the slot's offset from the rack centre, that gives the dock pose
+relative to the robot, independent of AMCL. It becomes an odom-frame target. If
+the lateral error is above 2 cm, the robot first reverses 0.35 m along the
+corrected line, then line-tracks forward to the dock point and turns to its
+yaw. If the rack is not recognised, it falls back to the AMCL-only dock on TF
+map->base_link (also available with `lidar_dock:=false`).
 ```bash
 ros2 launch warehouse_bringup nav2.launch.py                       # with the sim running
 ros2 launch warehouse_tasks task_manager.launch.py backend:=ros    # or backend:=mock (no sim)
@@ -111,6 +120,7 @@ scripts/check_gripper.sh     # lift within 1 cm, attach/carry/place box_09 to a 
 scripts/check_interfaces.sh  # warehouse_interfaces builds, interface show, Python types (no sim, ~15 s)
 scripts/check_task_manager.sh  # MoveBox action server, mock backend: success, invalid goals, queue, cancel, failure (no sim, ~30 s)
 scripts/check_move_box.sh [BOX:SHELF[:SLOT] ...]  # end-to-end in the sim: Nav2 + task_manager, box on target slot (~2-3 min)
+scripts/check_dock.sh [--slot shelf_X:N ...] [--no-lidar]  # 5 docking trials vs ground truth, each < 3 cm / 3 deg (~3.5 min)
 python3 -m pytest -q tests/  # pure-Python tests (no sim); run with system python3,
                              # not inside env.sh (the Isaac venv has no pytest)
 ```
@@ -138,7 +148,7 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
 | `scripts/` | launchers, drivers, probes and scripted checks (`lib.sh`: cleanup helpers) |
 | `ros_ws/src/warehouse_bringup` | URDF, `description`/`slam`/`nav2` launch files, slam_toolbox + Nav2 params, saved map, registry |
 | `ros_ws/src/warehouse_interfaces` | `MoveBox.action`, `BoxState.msg`, `BoxStates.msg` |
-| `ros_ws/src/warehouse_tasks` | `task_manager` node: MoveBox action server, pick/place state machine (`mission.py`), registry belief, docking law (`line_track.py`), mock + ROS backends |
+| `ros_ws/src/warehouse_tasks` | `task_manager` node: MoveBox action server, pick/place state machine (`mission.py`), registry belief, docking law (`line_track.py`), lidar rack-face measurement (`rack_align.py`), mock + ROS backends |
 | `tests/` | pytest tests that run without Isaac Sim |
 | `ros_ws/src/` | own ROS 2 packages (colcon) |
 | `out/` | logs, maps, bags, media (git-ignored, keep < 4 GB) |
@@ -166,12 +176,12 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
 - Day 17: box attach/detach (fixed joint), carry and place on a free slot — done.
 - Day 18: `warehouse_interfaces` (MoveBox action, BoxState(s) msgs) — done.
 - Day 19: `task_manager` MoveBox action server + state machine, mocked steps tested — done.
-- Day 20: line-tracking docking/undocking on TF map->base_link — done (unit-tested;
-  the formal "< 3 cm / 3 deg in 5 of 5 trials" measurement is still open).
-- Day 21: end-to-end `MoveBox` via the action in the sim: box placed 1–6 cm from
-  the slot centre — done.
-- Next: Day 20 docking accuracy trials, Day 22 multiple tasks + failure handling in the sim,
-  Day 23 ground-truth `/boxes` topic.
+- Day 20: precise docking with a lidar rack-face measurement: 10/10 trials within
+  3 cm / 3 deg (worst 1.0 cm, 1.4 deg); the AMCL-only dock managed 2/5 — done.
+- Day 21: end-to-end `MoveBox` via the action in the sim: boxes placed 1.3 cm
+  from the slot centre — done.
+- Next: Day 22 multiple tasks + failure handling in the sim, Day 23
+  ground-truth `/boxes` topic.
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.

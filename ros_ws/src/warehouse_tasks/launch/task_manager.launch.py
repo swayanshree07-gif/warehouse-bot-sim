@@ -1,7 +1,7 @@
 """MoveBox task manager (Day 19).
 
   ros2 launch warehouse_tasks task_manager.launch.py [backend:=mock|ros]
-      [use_sim_time:=true] [mock_fail:=navigate:unreachable]
+      [use_sim_time:=true] [mock_fail:=navigate:unreachable] [lidar_dock:=true]
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -16,6 +16,7 @@ def generate_launch_description():
         DeclareLaunchArgument("use_sim_time", default_value="true"),
         DeclareLaunchArgument("mock_step_time", default_value="0.2"),
         DeclareLaunchArgument("mock_fail", default_value=""),
+        DeclareLaunchArgument("lidar_dock", default_value="true"),
     ]
     node = Node(
         package="warehouse_tasks", executable="task_manager", name="task_manager", output="screen",
@@ -24,6 +25,7 @@ def generate_launch_description():
             "use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool),
             "mock_step_time": ParameterValue(LaunchConfiguration("mock_step_time"), value_type=float),
             "mock_fail": ParameterValue(LaunchConfiguration("mock_fail"), value_type=str),
+            "lidar_dock": ParameterValue(LaunchConfiguration("lidar_dock"), value_type=bool),
         }],
     )
     return LaunchDescription(args + [node])

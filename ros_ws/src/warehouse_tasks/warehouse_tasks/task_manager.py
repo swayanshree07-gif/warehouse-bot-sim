@@ -8,6 +8,8 @@ Parameters
   backend    "mock" (no sim, MockRobot) or "ros" (Nav2 + gripper services)
   mock_step_time  seconds per mocked step (default 0.2)
   mock_fail  "method:message" makes that mocked call fail, e.g. "navigate:unreachable"
+  lidar_dock true (default): dock on the lidar rack-face measurement (Day 20);
+             false: AMCL-only dock (the Day 21 behaviour)
 
 Goals are accepted and run one at a time in arrival order (a lock queues
 them). Each goal is validated against the current box belief when it starts,
@@ -48,6 +50,7 @@ class TaskManager(Node):
         self.declare_parameter("backend", "mock")
         self.declare_parameter("mock_step_time", 0.2)
         self.declare_parameter("mock_fail", "")
+        self.declare_parameter("lidar_dock", True)
         path = self.get_parameter("registry").value
         self.reg = Registry.load(path)
         backend = self.get_parameter("backend").value
@@ -58,7 +61,8 @@ class TaskManager(Node):
                                    fail_at=fail_at)
         elif backend == "ros":
             from .ros_robot import RosRobot
-            self.robot = RosRobot(self)
+            self.robot = RosRobot(self, registry=self.reg,
+                                  lidar_dock=self.get_parameter("lidar_dock").value)
         else:
             raise ValueError(f"unknown backend '{backend}' (mock|ros)")
         self.lock = threading.Lock()
