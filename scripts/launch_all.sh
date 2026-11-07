@@ -3,7 +3,7 @@
 #   sim (run_sim.sh) + Nav2 (AMCL on the packaged map, or --slam) + task_manager
 #
 #   scripts/launch_all.sh [--slam] [--seconds N] [--no-tasks] [--no-health]
-#                         [--record [DIR]]
+#                         [--record [DIR]] [--media [DIR]]
 #
 # Everything runs headless on ROS_DOMAIN_ID=21. When all parts are up,
 # scripts/health_check.py runs and the script prints `ALL_READY` (or exits 1 on
@@ -15,7 +15,10 @@
 # --record (Day 25) records a short, filtered rosbag (mcap, zstd) of $BAG_TOPICS
 # into DIR (default out/bags/run_<date>_<time>); recording starts with Nav2 and
 # is stopped first (SIGINT) on shutdown so the bag is closed cleanly.
-# Logs: out/logs/launch_all_{sim,nav2,tm,health,bag}.log (override the prefix
+# --media (Day 26) captures overview + chase camera PNGs (480x270, every 0.5
+# sim-s) into DIR (default out/media/run_<date>_<time>) and, after the sim has
+# stopped, turns them into DIR/{overview,chase,demo}.mp4 (scripts/make_video.sh).
+# Logs: out/logs/launch_all_{sim,nav2,tm,health,bag,video}.log (override the prefix
 # with LAUNCH_ALL_LOG_PREFIX).
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/env.sh"
@@ -23,7 +26,7 @@ source "$ROOT/scripts/lib.sh"
 mkdir -p "$ROOT/out/logs"
 P="${LAUNCH_ALL_LOG_PREFIX:-$ROOT/out/logs/launch_all}"
 
-SLAM=false; SECS=600; TASKS=1; HEALTH=1; BAG=""
+SLAM=false; SECS=600; TASKS=1; HEALTH=1; BAG=""; MEDIA=""
 # Small topics only: no camera, ~10 Hz scan. /map is a 200x160 grid. The
 # /move_box/_action/* topics are "hidden", hence --include-hidden-topics.
 BAG_TOPICS=(/clock /tf /tf_static /odom /scan /joint_states /cmd_vel /map
@@ -39,7 +42,10 @@ while [ $# -gt 0 ]; do
     --record)
       if [ -n "$2" ] && [ "${2#--}" = "$2" ]; then BAG="$2"; shift 2
       else BAG="$ROOT/out/bags/run_$(date +%Y%m%d_%H%M%S)"; shift; fi ;;
-    -h|--help) sed -n 2,21p "$0"; exit 0 ;;
+    --media)
+      if [ -n "$2" ] && [ "${2#--}" = "$2" ]; then MEDIA="$2"; shift 2
+      else MEDIA="$ROOT/out/media/run_$(date +%Y%m%d_%H%M%S)"; shift; fi ;;
+    -h|--help) sed -n 2,25p "$0"; exit 0 ;;
     *) echo "unknown argument: $1"; exit 2 ;;
   esac
 done
@@ -51,8 +57,13 @@ fi
 # ROS-side processes live a bit longer than the sim so they can stop cleanly
 ROS_CAP=$((SECS + 360))
 
+SIM_EXTRA=()
+if [ -n "$MEDIA" ]; then
+  [ -e "$MEDIA" ] && { echo "ALL media dir exists: $MEDIA"; exit 1; }
+  SIM_EXTRA+=(--capture "$MEDIA" --capture-every 0.5)
+fi
 export RUN_SIM_LOG="${P}_sim.log"
-bash "$ROOT/scripts/run_sim.sh" --seconds "$SECS" --start=-2,0,0 >"${P}_launch.log" 2>&1 &
+bash "$ROOT/scripts/run_sim.sh" --seconds "$SECS" --start=-2,0,0 "${SIM_EXTRA[@]}" >"${P}_launch.log" 2>&1 &
 LPID=$!
 NPID=""; TPID=""; BPID=""
 STOPPING=0
@@ -78,6 +89,10 @@ stop_all() {
   kill -9 "$LPID" 2>/dev/null
   pkill -9 -f "warehouse-bot-sim/sim/run_si[m].py" 2>/dev/null
   kill_kit_leftovers
+  if [ -n "$MEDIA" ] && [ -d "$MEDIA" ]; then
+    timeout 600 bash "$ROOT/scripts/make_video.sh" "$MEDIA" >"${P}_video.log" 2>&1
+    echo "ALL media: $(grep -o 'CAPTURE_DONE.*' "$RUN_SIM_LOG" | tail -1); $(tail -1 "${P}_video.log")"
+  fi
   echo "ALL_STOPPED ($(grep -o 'SIM_DONE.*' "$RUN_SIM_LOG" 2>/dev/null | tail -1))"
 }
 trap stop_all EXIT

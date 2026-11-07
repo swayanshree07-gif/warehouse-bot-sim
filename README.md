@@ -28,7 +28,7 @@ source ./env.sh          # also sources ros_ws/install if it exists
 ## Run
 Quick start: everything with one command (sim + Nav2 + task manager):
 ```bash
-scripts/launch_all.sh [--slam] [--seconds 600] [--record [DIR]]
+scripts/launch_all.sh [--slam] [--seconds 600] [--record [DIR]] [--media [DIR]]
 # wait for ALL_READY, then in a second shell:
 source ./env.sh && python3 scripts/move_box.py box_09 shelf_D
 ```
@@ -42,6 +42,19 @@ action server) and prints `ALL_READY`. `--record` also records a filtered rosbag
 stack stops when the sim run time ends, when any part exits, or on Ctrl-C/SIGTERM.
 The recorder is closed first, then everything else is stopped, and
 `ALL_STOPPED` is printed. Logs: `out/logs/launch_all_*.log`.
+`--media` captures camera frames from the headless sim (see below) into
+`out/media/run_<date>_<time>/` or DIR, and after the stop builds
+`overview.mp4`, `chase.mp4` and a side-by-side `demo.mp4` from them.
+
+Screenshots/video (`sim/media.py`, Day 26): `run_sim.py --capture DIR
+[--capture-every 0.5] [--capture-res 480x270]` adds two cameras, a fixed
+"overview" over the room and a "chase" camera behind the robot. Each one gets a
+low-res replicator render product with an `rgb` annotator. A PNG is written to
+`DIR/<camera>/frame_NNNN.png` every 0.5 sim-s (about 45 KB per frame, so
+about 11 MB per minute for both cameras). Without `--capture` nothing is
+rendered. `scripts/make_video.sh DIR [FPS]` turns the frames into H.264 mp4s
+with ffmpeg (10 fps by default, so 5x speed). The scene light is 1200 (was
+3000) so the floor is not overexposed.
 
 The parts can also be started one by one:
 ```bash
@@ -140,10 +153,13 @@ scripts/check_task_manager.sh  # MoveBox action server, mock backend: success, i
 scripts/check_move_box.sh [BOX:SHELF[:SLOT] ...]  # end-to-end in the sim: Nav2 + task_manager, box on target slot (~2-3 min)
 scripts/check_dock.sh [--slot shelf_X:N ...] [--no-lidar]  # 5 docking trials vs ground truth, each < 3 cm / 3 deg (~3.5 min)
 scripts/check_task_queue.sh  # in the sim: /boxes ground truth, 4 queued goals (2 succeed, missing box + occupied slot abort) (~4 min)
-scripts/check_launch_all.sh [--slam]  # launch_all.sh --record: ALL_READY, health check, 1 MoveBox, clean SIGTERM stop, bag valid (~3 min)
+scripts/check_launch_all.sh [--slam]  # launch_all.sh --record --media: ALL_READY, health check, 1 MoveBox, clean SIGTERM stop, bag + media valid (~3.5 min)
 scripts/check_launch_all.sh --supervise  # sim ends by itself after 45 s -> whole stack stops, no leftovers (~1.5 min)
 python3 scripts/health_check.py [--slam]  # health of a running stack (HEALTH_PASS / HEALTH_FAIL)
 python3 scripts/check_bag.py out/bags/<dir>  # bag < 300 MB with all key topics (no ROS needed)
+scripts/check_media.sh       # sim camera capture while driving -> PNGs + mp4s, not blank, robot moved (~1 min)
+python3 scripts/check_media.py out/media/<dir> [--need-video]  # validate captured frames/videos
+scripts/check_robustness.sh [N] [--slam]  # check_launch_all N times (default 3) + VRAM/RAM peaks (~4 min/run)
 python3 -m pytest -q tests/  # pure-Python tests (no sim); run with system python3,
                              # not inside env.sh (the Isaac venv has no pytest)
 ```
@@ -168,6 +184,7 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
 | `sim/registry_gen.py` | generates the shelf/box registry YAML (slot centres, approach/dock poses) |
 | `sim/box_handler.py` | in-sim rclpy node: lift command, virtual gripper attach/detach, `/boxes` ground truth, `/sim/remove_box` test hook |
 | `sim/box_state.py` | box -> shelf slot classification for `/boxes` (pure Python) |
+| `sim/media.py` | overview + chase cameras, replicator `rgb` annotators -> PNG frames |
 | `sim/map_eval.py` | compares a saved map with the scene geometry (coverage, occupied-cell IoU) |
 | `scripts/` | launchers, drivers, probes and scripted checks (`lib.sh`: cleanup helpers) |
 | `ros_ws/src/warehouse_bringup` | URDF, `description`/`slam`/`nav2` launch files, slam_toolbox + Nav2 params, saved map, registry |
@@ -214,7 +231,13 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   (19 items), supervision and clean shutdown; AMCL and SLAM modes — done.
 - Day 25: rosbag recording (`launch_all.sh --record`, 15 topics incl. the
   MoveBox action status/feedback, ~2.6 MB for a 75 s task) — done.
-- Next: Day 26 screenshots/video from a headless sim camera into `out/media/`.
+- Day 26: headless camera capture (overview + chase, 480x270) -> PNG frames
+  -> mp4 (`launch_all.sh --media`, `make_video.sh`); a full MoveBox run gives
+  149 frames per camera and a 15 s side-by-side `demo.mp4` — done.
+- Day 27: `check_robustness.sh`: 3/3 full runs in a row passed (sim + Nav2 +
+  MoveBox + bag + media, ~127 s each), peak VRAM 1.6 GB, peak system RAM
+  7.8 GB — done (the plan also allows fixing flakiness here; none showed up).
+- Next: Day 28 polish/lint, Day 29 docs, Day 30 final demo.
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.

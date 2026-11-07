@@ -83,5 +83,5 @@ def build_warehouse(stage, root="/World"):
         counts["boxes"] += 1
 
     light = stage.DefinePrim(f"{root}/Light", "DistantLight")
-    light.CreateAttribute("inputs:intensity", Sdf.ValueTypeNames.Float).Set(3000.0)
+    light.CreateAttribute("inputs:intensity", Sdf.ValueTypeNames.Float).Set(1200.0)
     return counts

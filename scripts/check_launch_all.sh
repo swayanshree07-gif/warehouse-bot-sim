@@ -10,6 +10,9 @@
 #  5. (Day 25) the run was recorded with --record into out/bags/<check name>:
 #     scripts/check_bag.py passes (< 300 MB, all key topics have messages)
 #     and `ros2 bag info` can read it
+#  6. (Day 26) camera frames were captured with --media into
+#     out/media/<check name>: scripts/check_media.py passes (frames, not blank,
+#     robot moved, overview/chase/demo.mp4 readable)
 # --supervise instead checks the supervision path: launch_all.sh with a 45 s
 # sim run time must notice the sim exiting by itself, stop Nav2 and the
 # task_manager, print ALL_STOPPED and leave no processes behind.
@@ -51,9 +54,10 @@ if [ $SUPERVISE = 1 ]; then
 fi
 
 BAG="$ROOT/out/bags/$NAME"
-rm -rf "$BAG"   # previous run of this check (always under out/bags/)
+MEDIA="$ROOT/out/media/$NAME"
+rm -rf "$BAG" "$MEDIA"   # previous run of this check (always under out/)
 T0=$(date +%s)
-bash "$ROOT/scripts/launch_all.sh" "${SLAM[@]}" --seconds 500 --record "$BAG" >"$ALOG" 2>&1 &
+bash "$ROOT/scripts/launch_all.sh" "${SLAM[@]}" --seconds 500 --record "$BAG" --media "$MEDIA" >"$ALOG" 2>&1 &
 APID=$!
 trap 'kill -TERM $APID 2>/dev/null; wait $APID 2>/dev/null' EXIT
 for _ in $(seq 1 480); do
@@ -106,6 +110,10 @@ else fail "bag: $(tail -1 "$L/${NAME}_bag_check.log")"; fi
 timeout 30 ros2 bag info "$BAG" >"$L/${NAME}_bag_info.log" 2>&1 \
   && ok "ros2 bag info reads it ($(grep -m1 'Bag size' "$L/${NAME}_bag_info.log" | tr -s ' '))" \
   || fail "ros2 bag info"
+if timeout 120 /usr/bin/python3 "$ROOT/scripts/check_media.py" "$MEDIA" --min-frames 40 --need-video \
+    >"$L/${NAME}_media_check.log" 2>&1; then
+  ok "$(tail -1 "$L/${NAME}_media_check.log")"
+else fail "media:"; cat "$L/${NAME}_media_check.log"; fi
 timeout 10 ros2 daemon stop >/dev/null 2>&1
 [ $FAILS -eq 0 ] && { echo "$NAME: PASS"; exit 0; }
 echo "$NAME: FAIL ($FAILS)"; exit 1

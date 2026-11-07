@@ -27,6 +27,9 @@ ap.add_argument("--no-realtime", action="store_true")
 ap.add_argument("--pose-every", type=float, default=0.25)
 ap.add_argument("--box-every", type=float, default=1.0)
 ap.add_argument("--start", default="-2,0,0", help="x,y,yaw_deg")
+ap.add_argument("--capture", default="", help="write camera PNG frames to this dir (Day 26)")
+ap.add_argument("--capture-every", type=float, default=0.5, help="sim seconds between frames")
+ap.add_argument("--capture-res", default="480x270", help="WxH of each camera")
 args = ap.parse_args()
 
 from isaacsim import SimulationApp  # noqa: E402
@@ -56,6 +59,13 @@ from box_handler import BoxHandler  # noqa: E402
 
 handler = BoxHandler(stage)
 
+recorder = None
+if args.capture:
+    from media import MediaRecorder, warm_up  # noqa: E402
+
+    w, h = (int(v) for v in args.capture_res.lower().split("x"))
+    recorder = MediaRecorder(stage, args.capture, every=args.capture_every, res=(w, h))
+
 from isaacsim.core.utils.xforms import get_world_pose  # noqa: E402
 
 
@@ -80,6 +90,9 @@ signal.signal(signal.SIGTERM, _on_signal)
 tl = omni.timeline.get_timeline_interface()
 tl.play()
 app.update()
+if recorder is not None:
+    warm_up(app)
+    print(f"CAPTURE_ON dir={args.capture} every={args.capture_every} res={args.capture_res}", flush=True)
 print("SIM_READY", flush=True)
 wall0, sim0, next_pose, next_box, next_pub = time.time(), tl.get_current_time(), 0.0, 0.0, 0.0
 while app.is_running() and time.time() - wall0 < args.seconds and _stop["sig"] is None:
@@ -100,11 +113,15 @@ while app.is_running() and time.time() - wall0 < args.seconds and _stop["sig"] i
         x, y, yaw = pose()
         print(f"POSE t={st:.2f} x={x:.3f} y={y:.3f} yaw={yaw:.1f}", flush=True)
         next_pose += args.pose_every
+    if recorder is not None:
+        recorder.capture(st)
     if not args.no_realtime:
         ahead = st - (time.time() - wall0)
         if ahead > 0:
             time.sleep(ahead)
 tl.stop()
 handler.shutdown()
+if recorder is not None:
+    print(f"CAPTURE_DONE {recorder.summary()}", flush=True)
 print(f"SIM_DONE reason={'signal' if _stop['sig'] else 'time'}", flush=True)
 app.close()
