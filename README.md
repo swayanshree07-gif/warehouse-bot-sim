@@ -246,7 +246,11 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   Days 15–27 were re-planned for a 3-robot fleet (see PLAN.md). Fleet core
   `warehouse_tasks/fleet.py` (nearest-free-robot assignment, FIFO queue,
   box/slot claims) is done and tested (`tests/test_fleet.py`).
-- Next: Day 16 traffic reservations/deadlock avoidance, Day 17 light 2D fleet
+  Traffic manager `warehouse_tasks/traffic.py` (Day 16) is done: 0.5 m grid
+  roadmap from the saved map, A*, per-tick cell reservations by priority (no
+  shared cells, no swaps), wait-for-graph deadlock detection, priority yield
+  to a refuge cell, parked-robot push. Tested in `tests/test_traffic.py`.
+- Next: Day 17 light 2D fleet
   simulator, Day 18 metrics + headless scenario test, Days 19–27 the fleet in
   Isaac Sim; Days 28–30 polish, docs, demo.
 
