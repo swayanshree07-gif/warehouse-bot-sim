@@ -195,8 +195,9 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
 | `out/` | logs, maps, bags, media (git-ignored, keep < 4 GB) |
 
 ## Status
-- Last re-verified 2026-11-08 (session Day 13): `scripts/check_nav.sh` PASS
-  (Nav2 + AMCL on the saved map, 3-goal BasicNavigator tour, errors <= 0.15 m).
+- Last re-verified 2026-11-08 (session Day 14): `scripts/check_nav.sh --slam`
+  PASS (Nav2 on slam_toolbox's live map, 3-goal tour, errors <= 0.15 m, map
+  grew 3.9 -> 74.1 m^2). Day 13: `scripts/check_nav.sh` (AMCL) PASS.
 - Day 1: plan, isolated environment (`env.sh`, domain 21), headless ROS 2
   bridge smoke test publishing `/clock` — done.
 - Day 2: warehouse scene — 10 m x 8 m room, 4 walls, 4 solid racks with 3
