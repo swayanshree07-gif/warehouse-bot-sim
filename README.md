@@ -195,6 +195,8 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
 | `out/` | logs, maps, bags, media (git-ignored, keep < 4 GB) |
 
 ## Status
+- Last re-verified 2026-11-08 (session Day 12): `scripts/check_nav.sh` PASS
+  (Nav2 + AMCL on the saved map, 3-goal tour).
 - Day 1: plan, isolated environment (`env.sh`, domain 21), headless ROS 2
   bridge smoke test publishing `/clock` — done.
 - Day 2: warehouse scene — 10 m x 8 m room, 4 walls, 4 solid racks with 3
