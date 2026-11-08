@@ -250,8 +250,13 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   roadmap from the saved map, A*, per-tick cell reservations by priority (no
   shared cells, no swaps), wait-for-graph deadlock detection, priority yield
   to a refuge cell, parked-robot push. Tested in `tests/test_traffic.py`.
-- Next: Day 17 light 2D fleet
-  simulator, Day 18 metrics + headless scenario test, Days 19–27 the fleet in
+  Light 2D fleet simulator `warehouse_tasks/lightsim.py` (Day 17) is done:
+  kinematic robots on the traffic grid (0.5 m/s), timed pick/drop, a 3-slot
+  floor drop zone `zone_E` (light sim only). Run the 3-robot, 9-task scenario
+  with `timeout 120 python3 scripts/run_lightsim.py -v` (JSON report in
+  `out/fleet/lightsim.json`; exits 0 only if 9/9 done, no collisions, min
+  separation >= 0.5 m). Tested in `tests/test_lightsim.py`.
+- Next: Day 18 metrics + headless scenario test, Days 19–27 the fleet in
   Isaac Sim; Days 28–30 polish, docs, demo.
 
 Notes: the headless sim runs faster than real time unless paced
