@@ -237,6 +237,8 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
 - Day 27: `check_robustness.sh`: 3/3 full runs in a row passed (sim + Nav2 +
   MoveBox + bag + media, ~127 s each), peak VRAM 1.6 GB, peak system RAM
   7.8 GB — done (the plan also allows fixing flakiness here; none showed up).
+- 2026-11-08 re-check: the Day 11 map check still passes with a freshly built
+  SLAM map (coverage 1.000, IoU 1.000).
 - Next: Day 28 polish/lint, Day 29 docs, Day 30 final demo.
 
 Notes: the headless sim runs faster than real time unless paced
