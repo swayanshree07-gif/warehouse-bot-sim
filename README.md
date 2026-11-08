@@ -256,7 +256,12 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   with `timeout 120 python3 scripts/run_lightsim.py -v` (JSON report in
   `out/fleet/lightsim.json`; exits 0 only if 9/9 done, no collisions, min
   separation >= 0.5 m). Tested in `tests/test_lightsim.py`.
-- Next: Day 18 metrics + headless scenario test, Days 19–27 the fleet in
+  Throughput metrics `warehouse_tasks/metrics.py` (Day 18) are done:
+  tasks/hour, mean/max task time, queue wait, per-robot idle % and traffic
+  wait. Headless scenario check: `scripts/check_fleet_scenario.sh` (report in
+  `out/fleet/scenario_report.json`; floor `MIN_TPH`, default 200/h; current
+  337.5/h). Tested in `tests/test_metrics.py`.
+- Next: Days 19–27 the fleet in
   Isaac Sim; Days 28–30 polish, docs, demo.
 
 Notes: the headless sim runs faster than real time unless paced

@@ -2,7 +2,8 @@
 """Run the light 2D fleet scenario headless (Day 17). Writes a JSON report.
 
 Usage: timeout 120 python3 scripts/run_lightsim.py [--out out/fleet/lightsim.json]
-Exit 0 only if every task is done, no collisions and min separation >= 0.5 m.
+Exit 0 only if every task is done, no collisions, min separation >= 0.5 m
+and tasks/hour >= --min-tph. The report includes throughput metrics (Day 18).
 """
 import argparse
 import json
@@ -24,6 +25,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(ROOT, "out", "fleet", "lightsim.json"))
     ap.add_argument("--min-sep", type=float, default=0.5)
+    ap.add_argument("--min-tph", type=float, default=0.0,
+                    help="fail if tasks/hour is below this floor")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
     t0 = time.time()
@@ -43,7 +46,8 @@ def main():
     print(json.dumps({k: v for k, v in rep.items() if k != "boxes"}))
     ok = (rep["tasks_done"] == len(DEFAULT_SCENARIO) and rep["tasks_failed"] == 0
           and rep["rejected"] == 0 and rep["collisions"] == 0
-          and rep["min_separation_m"] >= args.min_sep)
+          and rep["min_separation_m"] >= args.min_sep
+          and rep["metrics"]["tasks_per_hour"] >= args.min_tph)
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1
 

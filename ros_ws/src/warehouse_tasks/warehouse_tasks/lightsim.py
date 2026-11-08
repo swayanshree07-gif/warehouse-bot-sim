@@ -22,6 +22,7 @@ Model:
 import math
 
 from .fleet import FleetManager
+from .metrics import compute_metrics
 from .registry import TaskError
 from .traffic import TrafficManager
 
@@ -65,11 +66,13 @@ class LightSim:
         self.min_sep = math.inf
         self.collisions = 0
         self.events = []
+        self.robot_time = {}  # name -> idle/busy/traffic_wait seconds
         for name, xy in starts.items():
             cell = roadmap.nearest_free(roadmap.to_cell(*xy))
             self.tm.add_robot(name, cell)
             self.fleet.add_robot(name, (*roadmap.to_world(cell), 0.0))
             self.phase[name] = ("idle", -1, 0)
+            self.robot_time[name] = {"idle": 0.0, "busy": 0.0, "traffic_wait": 0.0}
 
     # ---- helpers --------------------------------------------------------
     def cell_of(self, pose):
@@ -113,6 +116,15 @@ class LightSim:
         self.tm.tick()
         after = {n: self.pos(n) for n in self.tm.agents}
         self._check_separation(before, after)
+        for n, (ph, _, _) in self.phase.items():
+            rt = self.robot_time[n]
+            if ph == "idle":
+                rt["idle"] += self.tick_s
+            else:
+                rt["busy"] += self.tick_s
+                if (ph in ("to_pick", "to_drop") and before[n] == after[n]
+                        and not self.tm.agents[n].done):
+                    rt["traffic_wait"] += self.tick_s
         self.t += self.tick_s
         for name, (ph, tid, left) in list(self.phase.items()):
             a = self.tm.agents[name]
@@ -176,5 +188,6 @@ class LightSim:
             "collisions": self.collisions,
             "deadlocks_resolved": self.tm.deadlocks,
             "per_robot_tasks": {n: sum(t.robot == n for t in tasks) for n in self.fleet.robots},
+            "metrics": compute_metrics(tasks, self.robot_time, self.t),
             "boxes": {b: list(v) for b, v in sorted(self.fleet.registry.boxes.items())},
         }
