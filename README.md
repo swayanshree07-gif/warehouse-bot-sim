@@ -242,7 +242,13 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   7.8 GB — done (the plan also allows fixing flakiness here; none showed up).
 - 2026-11-08 re-check: the Day 11 map check still passes with a freshly built
   SLAM map (coverage 1.000, IoU 1.000).
-- Next: Day 28 polish/lint, Day 29 docs, Day 30 final demo.
+- 2026-11-08 (session Day 15): the original single-robot plan is complete.
+  Days 15–27 were re-planned for a 3-robot fleet (see PLAN.md). Fleet core
+  `warehouse_tasks/fleet.py` (nearest-free-robot assignment, FIFO queue,
+  box/slot claims) is done and tested (`tests/test_fleet.py`).
+- Next: Day 16 traffic reservations/deadlock avoidance, Day 17 light 2D fleet
+  simulator, Day 18 metrics + headless scenario test, Days 19–27 the fleet in
+  Isaac Sim; Days 28–30 polish, docs, demo.
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.
