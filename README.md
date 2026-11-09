@@ -159,6 +159,7 @@ python3 scripts/health_check.py [--slam]  # health of a running stack (HEALTH_PA
 python3 scripts/check_bag.py out/bags/<dir>  # bag < 300 MB with all key topics (no ROS needed)
 scripts/check_media.sh       # sim camera capture while driving -> PNGs + mp4s, not blank, robot moved (~1 min)
 python3 scripts/check_media.py out/media/<dir> [--need-video]  # validate captured frames/videos
+scripts/check_fleet_nav.sh   # Isaac + AMCL x3 + traffic-manager follower: 3 robots reach crossing goals at once (~2 min)
 scripts/check_fleet_amcl.sh  # Isaac + AMCL x3 on saved map: each /robotN/amcl_pose within 0.2 m of ground truth (~1.5 min)
 scripts/check_fleet_sim.sh   # Isaac, 3 namespaced robots: 9 /robotN/{cmd_vel,odom,scan} topics, robotN/* TF, /robot2/cmd_vel moves only robot2, VRAM < 7 GB (~1 min)
 scripts/check_fleet_scenario.sh  # light sim 3 robots / 9 tasks + metrics floor (no GPU, seconds)
@@ -275,8 +276,14 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   (`/robotN/amcl_pose`, TF `map -> robotN/odom`). Map frame = world + 2 m in x.
   Check: `scripts/check_fleet_amcl.sh` (all 3 AMCL poses within 0.2 m of
   ground truth, also after driving robot2/robot3).
-- Next: Days 21–27 the fleet in
-  Isaac Sim (AMCL x3, navigation, box handling, fleet manager); Days 28–30 polish, docs, demo.
+  Fleet navigation (Day 21) is done, without Nav2: the traffic manager
+  (`warehouse_tasks/path_follower.py`) reserves grid cells, and a small
+  per-robot controller drives `/robotN/cmd_vel` from TF `map -> robotN/base_footprint`.
+  Run it with `scripts/fleet_follow.py robot1=x,y robot2=x,y robot3=x,y` (map frame).
+  Check: `scripts/check_fleet_nav.sh` (3 crossing goals reached at once
+  within 0.25 m, peak RAM ~7.4 GB, VRAM ~1.2 GB).
+- Next: Days 22–27 per-robot box handling, fleet manager node, reservations
+  in the full Isaac scenario; Days 28–30 polish, docs, demo.
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.
