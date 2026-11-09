@@ -159,6 +159,8 @@ python3 scripts/health_check.py [--slam]  # health of a running stack (HEALTH_PA
 python3 scripts/check_bag.py out/bags/<dir>  # bag < 300 MB with all key topics (no ROS needed)
 scripts/check_media.sh       # sim camera capture while driving -> PNGs + mp4s, not blank, robot moved (~1 min)
 python3 scripts/check_media.py out/media/<dir> [--need-video]  # validate captured frames/videos
+scripts/check_fleet_sim.sh   # Isaac, 3 namespaced robots: 9 /robotN/{cmd_vel,odom,scan} topics, robotN/* TF, /robot2/cmd_vel moves only robot2, VRAM < 7 GB (~1 min)
+scripts/check_fleet_scenario.sh  # light sim 3 robots / 9 tasks + metrics floor (no GPU, seconds)
 scripts/check_robustness.sh [N] [--slam]  # check_launch_all N times (default 3) + VRAM/RAM peaks (~4 min/run)
 python3 -m pytest -q tests/  # pure-Python tests (no sim); run with system python3,
                              # not inside env.sh (the Isaac venv has no pytest)
@@ -261,8 +263,13 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   wait. Headless scenario check: `scripts/check_fleet_scenario.sh` (report in
   `out/fleet/scenario_report.json`; floor `MIN_TPH`, default 200/h; current
   337.5/h). Tested in `tests/test_metrics.py`.
-- Next: Days 19–27 the fleet in
-  Isaac Sim; Days 28–30 polish, docs, demo.
+  Isaac fleet scene (Day 19) is done: `sim/run_fleet_sim.py` spawns
+  robot1..3 (`sim/fleet_layout.py`, central aisle x=-3/0/3) with topics
+  `/robotN/cmd_vel|odom|scan|joint_states`, TF frames `robotN/odom ->
+  robotN/base_link -> robotN/laser` on the shared `/tf`, one `/clock`.
+  Peak GPU memory ~1.2 GB. Check: `scripts/check_fleet_sim.sh`.
+- Next: Days 20–27 the fleet in
+  Isaac Sim (AMCL x3, navigation, box handling, fleet manager); Days 28–30 polish, docs, demo.
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.

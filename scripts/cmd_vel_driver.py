@@ -4,6 +4,7 @@
 Waits for a subscriber, publishes each segment at 20 Hz (wall clock) and sends
 zero twists at the end. Used by scripts/check_cmd_vel.sh (Day 4).
 """
+import os
 import sys
 import time
 
@@ -15,7 +16,8 @@ def main(argv):
     segs = [tuple(float(v) for v in a.split(",")) for a in argv]
     rclpy.init()
     node = rclpy.create_node("cmd_vel_driver")
-    pub = node.create_publisher(Twist, "cmd_vel", 10)
+    topic = os.environ.get("CMD_VEL_TOPIC", "cmd_vel")
+    pub = node.create_publisher(Twist, topic, 10)
     t0 = time.time()
     while pub.get_subscription_count() == 0:
         if time.time() - t0 > 20:

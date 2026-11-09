@@ -16,6 +16,11 @@ EXTENSIONS = (
 )
 
 
+def _t(ns, name):
+    """Topic name inside namespace ns (Day 19 fleet); '' keeps the old topic."""
+    return f"{ns}/{name}" if ns else name
+
+
 def enable_ros_extensions(app):
     mgr = omni.kit.app.get_app().get_extension_manager()
     for ext in EXTENSIONS:
@@ -85,7 +90,7 @@ def build_cmd_vel_graph(robot_path="/World/Robot", topic="cmd_vel", path="/World
 
 
 def build_odom_graph(robot_path="/World/Robot", chassis="chassis", path="/World/ROS/OdomGraph",
-                     odom_frame="odom", base_frame="base_link"):
+                     odom_frame="odom", base_frame="base_link", ns=""):
     """/odom (nav_msgs/Odometry), TF odom->base_link and /joint_states.
 
     Odometry comes from IsaacComputeOdometry on the chassis rigid body (ground
@@ -121,21 +126,21 @@ def build_odom_graph(robot_path="/World/Robot", chassis="chassis", path="/World/
             ],
             og.Controller.Keys.SET_VALUES: [
                 ("ComputeOdom.inputs:chassisPrim", [chassis_path]),
-                ("PubOdom.inputs:topicName", "odom"),
+                ("PubOdom.inputs:topicName", _t(ns, "odom")),
                 ("PubOdom.inputs:odomFrameId", odom_frame),
                 ("PubOdom.inputs:chassisFrameId", base_frame),
                 ("PubTf.inputs:parentFrameId", odom_frame),
                 ("PubTf.inputs:childFrameId", base_frame),
                 ("PubTf.inputs:topicName", "tf"),
                 ("PubJoints.inputs:targetPrim", [robot_path]),
-                ("PubJoints.inputs:topicName", "joint_states"),
+                ("PubJoints.inputs:topicName", _t(ns, "joint_states")),
             ],
         },
     )
 
 
 def build_scan_graph(sensor_path, path="/World/ROS/ScanGraph", frame="laser", base_frame="base_link",
-                     physics_hz=60.0):
+                     physics_hz=60.0, ns=""):
     """/scan (sensor_msgs/LaserScan) from the raycast lidar + static TF
     base_link -> laser. Published every N ticks for ~P.LASER_RATE_HZ."""
     import usdrt.Sdf
@@ -165,7 +170,7 @@ def build_scan_graph(sensor_path, path="/World/ROS/ScanGraph", frame="laser", ba
             og.Controller.Keys.SET_VALUES: [
                 ("Gate.inputs:step", step),
                 ("ReadRaycast.inputs:raycastSensorPrim", [usdrt.Sdf.Path(sensor_path)]),
-                ("PubScan.inputs:topicName", "scan"),
+                ("PubScan.inputs:topicName", _t(ns, "scan")),
                 ("PubScan.inputs:frameId", frame),
                 ("PubScan.inputs:horizontalFov", 360.0),
                 ("PubScan.inputs:horizontalResolution", P.LASER_RES_DEG),
