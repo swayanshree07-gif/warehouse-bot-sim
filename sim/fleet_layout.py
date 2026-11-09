@@ -34,3 +34,15 @@ def world_to_map(x, y):
 def map_starts():
     """AMCL initial poses (x, y, yaw) in the map frame, per namespace."""
     return {ns: (*world_to_map(x, y), yaw) for ns, (x, y, yaw) in FLEET_STARTS.items()}
+
+
+def parse_starts(items, base=None):
+    """["robot2=1,2,90", ...] -> FLEET_STARTS copy with those poses replaced (Day 22)."""
+    out = dict(base if base is not None else FLEET_STARTS)
+    for it in items:
+        ns, v = it.split("=", 1)
+        if ns not in out:
+            raise ValueError(f"unknown robot namespace {ns!r}")
+        x, y, yaw = (float(c) for c in v.split(","))
+        out[ns] = (x, y, yaw)
+    return out

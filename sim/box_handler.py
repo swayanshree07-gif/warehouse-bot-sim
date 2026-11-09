@@ -58,8 +58,18 @@ def _yaw(q):
 
 
 class BoxHandler:
-    def __init__(self, stage, robot="/World/Robot", boxes_root="/World/Boxes"):
+    def __init__(self, stage, robot="/World/Robot", boxes_root="/World/Boxes", ns="", peers=None,
+                 owns_boxes=True):
+        """ns: robot namespace (Day 22 fleet, "" = single robot). peers: list shared by
+        every handler in the sim (self is appended) so attach never grabs a box another
+        robot holds and /boxes reports the holder. Only the owns_boxes handler
+        publishes /boxes and serves /sim/remove_box."""
         self.stage = stage
+        self.ns = ns.strip("/")
+        self.peers = peers if peers is not None else []
+        self.peers.append(self)
+        self.owns_boxes = owns_boxes
+        self.joint = GRIP_JOINT + (f"_{self.ns}" if self.ns else "")
         self.robot = robot
         self.chassis = f"{robot}/chassis"
         self.lift = f"{robot}/lift"
@@ -71,15 +81,18 @@ class BoxHandler:
             # run_sim.py owns SIGINT/SIGTERM (graceful stop); keep rclpy out of it
             rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
         # sim time (the OmniGraph /clock) for the /boxes header stamps
-        self.node = rclpy.create_node("sim_box_handler", parameter_overrides=[
+        self.node = rclpy.create_node("sim_box_handler", namespace=self.ns, parameter_overrides=[
             rclpy.parameter.Parameter("use_sim_time", rclpy.parameter.Parameter.Type.BOOL, True)])
         self.node.create_subscription(Float64, "lift/command", self._on_lift, 10)
         self.pub_h = self.node.create_publisher(Float64, "lift/height", 10)
         self.pub_held = self.node.create_publisher(String, "gripper/held", 10)
         self.node.create_service(Trigger, "gripper/attach", self._on_attach)
         self.node.create_service(Trigger, "gripper/detach", self._on_detach)
-        self.pub_boxes = self.node.create_publisher(BoxStates, "boxes", 10)
-        self.node.create_subscription(String, "sim/remove_box", self._on_remove, 10)
+        self.pub_boxes = None
+        if owns_boxes:
+            pre = "/" if self.ns else ""   # fleet: one global /boxes, /sim/remove_box
+            self.pub_boxes = self.node.create_publisher(BoxStates, f"{pre}boxes", 10)
+            self.node.create_subscription(String, f"{pre}sim/remove_box", self._on_remove, 10)
         reg = registry_gen.build()
         self.slots = box_state.slot_table(reg)
         self.to_map = box_state.world_to_map_fn(reg["map_origin_in_world"])
@@ -115,7 +128,10 @@ class BoxHandler:
         else:
             g = self.grip_point()
             best, best_d = None, math.inf
+            taken = {h.held for h in self.peers if h is not self and h.held}
             for name, p in self.box_positions().items():
+                if name in taken:
+                    continue
                 d = math.hypot(p[0] - g[0], p[1] - g[1])
                 if d < best_d and abs(p[2] - g[2]) < 0.6:
                     best, best_d = name, d
@@ -133,7 +149,7 @@ class BoxHandler:
         if not self.held:
             res.success, res.message = False, "not holding a box"
         else:
-            self.stage.RemovePrim(GRIP_JOINT)
+            self.stage.RemovePrim(self.joint)
             res.success, res.message = True, self.held
             self.held = ""
         self.events.append(f"GRIP_DETACH ok={int(res.success)} msg={res.message.replace(' ', '_')}")
@@ -141,7 +157,7 @@ class BoxHandler:
 
     def _on_remove(self, msg):
         name = msg.data.strip()
-        if name not in self.boxes or name == self.held:
+        if name not in self.boxes or name in self.holders():
             self.events.append(f"BOX_REMOVE ok=0 box={name or '-'}")
             return
         x, y = REMOVED_AT[0], REMOVED_AT[1] + 0.3 * self.removed
@@ -155,6 +171,10 @@ class BoxHandler:
                 attr.Set(Gf.Vec3f(0, 0, 0))
         self.events.append(f"BOX_REMOVE ok=1 box={name} to={x:.2f},{y:.2f}")
 
+    def holders(self):
+        """box id -> holder name (namespace, or "robot" for the single-robot sim)."""
+        return {h.held: (h.ns or "robot") for h in self.peers if h.held}
+
     def box_states(self, stamp=None):
         msg = BoxStates()
         msg.header.frame_id = "map"
@@ -162,8 +182,9 @@ class BoxHandler:
             msg.header.stamp = stamp
         for name, p in self.box_positions().items():
             m = self.to_map((float(p[0]), float(p[1]), float(p[2])))
-            shelf, slot = box_state.classify(m, self.slots, held=(name == self.held))
-            msg.boxes.append(BoxState(id=name, shelf=shelf, slot=slot, held=(name == self.held),
+            holder = self.holders().get(name, "")
+            shelf, slot = box_state.classify(m, self.slots, held=bool(holder))
+            msg.boxes.append(BoxState(id=name, shelf=shelf, slot=slot, held=bool(holder), holder=holder,
                                       position=Point(x=m[0], y=m[1], z=m[2])))
         return msg
 
@@ -173,7 +194,7 @@ class BoxHandler:
         qinv = ql.GetInverse()
         rel_p = Gf.Rotation(qinv).TransformDir(pb - pl)
         rel_q = qinv * qb
-        j = UsdPhysics.FixedJoint.Define(self.stage, GRIP_JOINT)
+        j = UsdPhysics.FixedJoint.Define(self.stage, self.joint)
         j.CreateBody0Rel().SetTargets([self.lift])
         j.CreateBody1Rel().SetTargets([self.boxes[name]])
         j.CreateLocalPos0Attr(Gf.Vec3f(*rel_p))
@@ -189,7 +210,17 @@ class BoxHandler:
     def publish(self):
         self.pub_h.publish(Float64(data=self.lift_height()))
         self.pub_held.publish(String(data=self.held))
-        self.pub_boxes.publish(self.box_states(self.node.get_clock().now().to_msg()))
+        if self.pub_boxes is not None:
+            self.pub_boxes.publish(self.box_states(self.node.get_clock().now().to_msg()))
+
+    def fleet_status_line(self, t):
+        """`FBOXES t= robot1:lift=..,held=.. ... box_00=x,y,z@holder ...` (world frame)."""
+        hs = self.holders()
+        parts = [f"FBOXES t={t:.2f}"]
+        parts += [f"{h.ns}:lift={h.lift_height():.3f},held={h.held or '-'}" for h in self.peers]
+        for n, p in self.box_positions().items():
+            parts.append(f"{n}={p[0]:.3f},{p[1]:.3f},{p[2]:.3f}@{hs.get(n, '-')}")
+        return " ".join(parts)
 
     def status_line(self, t):
         parts = [f"BOXES t={t:.2f} lift={self.lift_height():.3f} held={self.held or '-'}"]
@@ -199,5 +230,5 @@ class BoxHandler:
 
     def shutdown(self):
         self.node.destroy_node()
-        if rclpy.ok():
+        if self.owns_boxes and rclpy.ok():
             rclpy.shutdown()

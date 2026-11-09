@@ -6,6 +6,7 @@
   python3 scripts/gripper_cmd.py attach | detach
       call /gripper/attach or /gripper/detach (std_srvs/Trigger); prints
       `GRIPPER <verb> success=<0|1> message=<...>`, exit 0 only on success
+  --ns robotN uses /robotN/lift/*, /robotN/gripper/* (fleet sim).
 Needs `source env.sh` (domain 21) and the sim running (sim/run_sim.py).
 """
 import argparse
@@ -62,9 +63,10 @@ def main():
     ap.add_argument("value", nargs="?", type=float)
     ap.add_argument("--tol", type=float, default=0.01)
     ap.add_argument("--timeout", type=float, default=15.0)
+    ap.add_argument("--ns", default="", help="robot namespace, e.g. robot2 (Day 22 fleet)")
     a = ap.parse_args()
     rclpy.init()
-    node = rclpy.create_node("gripper_cmd")
+    node = rclpy.create_node("gripper_cmd", namespace=a.ns.strip("/"))
     try:
         if a.verb == "lift":
             if a.value is None:
