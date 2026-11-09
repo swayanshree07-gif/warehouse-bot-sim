@@ -163,6 +163,7 @@ scripts/check_fleet_boxes.sh # Isaac fleet: 3 robots each attach, lift and carry
 scripts/check_fleet_nav.sh   # Isaac + AMCL x3 + traffic-manager follower: 3 robots reach crossing goals at once (~2 min)
 scripts/check_fleet_amcl.sh  # Isaac + AMCL x3 on saved map: each /robotN/amcl_pose within 0.2 m of ground truth (~1.5 min)
 scripts/check_fleet_sim.sh   # Isaac, 3 namespaced robots: 9 /robotN/{cmd_vel,odom,scan} topics, robotN/* TF, /robot2/cmd_vel moves only robot2, VRAM < 7 GB (~1 min)
+scripts/check_fleet_manager.sh   # fleet_manager ROS 2 node (light backend): 6 tasks over /fleet/tasks all done, /fleet/status assignments (~30 s)
 scripts/check_fleet_scenario.sh  # light sim 3 robots / 9 tasks + metrics floor (no GPU, seconds)
 scripts/check_robustness.sh [N] [--slam]  # check_launch_all N times (default 3) + VRAM/RAM peaks (~4 min/run)
 python3 -m pytest -q tests/  # pure-Python tests (no sim); run with system python3,
@@ -290,8 +291,13 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   another robot holds. `run_fleet_sim.py --starts robotN=x,y,yaw` overrides spawn poses.
   Check: `scripts/check_fleet_boxes.sh` (3 robots lift and carry 3 different
   boxes at once, ~1.5 min).
-- Next: Days 23–27 fleet manager node, fleet manager node, reservations
-  in the full Isaac scenario; Days 28–30 polish, docs, demo.
+- Day 23: `fleet_manager` ROS 2 node (`ros2 launch warehouse_tasks
+  fleet_manager.launch.py`). Send tasks as `std_msgs/String` "box_id shelf_id"
+  on `/fleet/tasks`; JSON state (robots, assignments, task states, metrics)
+  on `/fleet/status`. Backend: light sim stepped in real time. Client:
+  `scripts/fleet_client.py`. Check: `scripts/check_fleet_manager.sh`.
+- Next: Days 24–27 reservations gating robots in the full Isaac scenario
+  (fleet_manager Isaac backend); Days 28–30 polish, docs, demo.
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.

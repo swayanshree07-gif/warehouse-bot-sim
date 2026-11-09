@@ -17,5 +17,8 @@ setup(
     zip_safe=True,
     description="MoveBox task manager (action server + pick/place state machine).",
     license="MIT",
-    entry_points={"console_scripts": [f"task_manager = {PKG}.task_manager:main"]},
+    entry_points={"console_scripts": [
+        f"task_manager = {PKG}.task_manager:main",
+        f"fleet_manager = {PKG}.fleet_manager:main",
+    ]},
 )
