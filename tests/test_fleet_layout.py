@@ -20,3 +20,14 @@ def test_starts_free_and_separated():
             assert abs(a[1] - s.y) > L.SHELF_SIZE[1] / 2 + 0.5 or abs(a[0] - s.x) > L.SHELF_SIZE[0] / 2 + 0.5
         for b in pts[i + 1:]:
             assert math.hypot(a[0] - b[0], a[1] - b[1]) >= 2.0
+
+
+def test_map_starts_match_fleet_launch():
+    import ast
+    import pathlib
+    from fleet_layout import map_starts
+    src = pathlib.Path(__file__).resolve().parents[1] / \
+        "ros_ws/src/warehouse_bringup/launch/fleet_localization.launch.py"
+    tree = ast.parse(src.read_text())
+    node = next(n for n in tree.body if isinstance(n, ast.Assign) and n.targets[0].id == "MAP_STARTS")
+    assert ast.literal_eval(node.value) == map_starts()

@@ -20,3 +20,17 @@ def frames(ns):
 
 def topics(ns):
     return [f"/{ns}/{t}" for t in ("cmd_vel", "odom", "scan")]
+
+
+# The saved map (Day 11) was built from the single-robot start at world (-2, 0, 0),
+# so map frame = world frame shifted by +2 m in x (no rotation).
+MAP_ORIGIN_WORLD = (-2.0, 0.0)
+
+
+def world_to_map(x, y):
+    return x - MAP_ORIGIN_WORLD[0], y - MAP_ORIGIN_WORLD[1]
+
+
+def map_starts():
+    """AMCL initial poses (x, y, yaw) in the map frame, per namespace."""
+    return {ns: (*world_to_map(x, y), yaw) for ns, (x, y, yaw) in FLEET_STARTS.items()}

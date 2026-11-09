@@ -159,6 +159,7 @@ python3 scripts/health_check.py [--slam]  # health of a running stack (HEALTH_PA
 python3 scripts/check_bag.py out/bags/<dir>  # bag < 300 MB with all key topics (no ROS needed)
 scripts/check_media.sh       # sim camera capture while driving -> PNGs + mp4s, not blank, robot moved (~1 min)
 python3 scripts/check_media.py out/media/<dir> [--need-video]  # validate captured frames/videos
+scripts/check_fleet_amcl.sh  # Isaac + AMCL x3 on saved map: each /robotN/amcl_pose within 0.2 m of ground truth (~1.5 min)
 scripts/check_fleet_sim.sh   # Isaac, 3 namespaced robots: 9 /robotN/{cmd_vel,odom,scan} topics, robotN/* TF, /robot2/cmd_vel moves only robot2, VRAM < 7 GB (~1 min)
 scripts/check_fleet_scenario.sh  # light sim 3 robots / 9 tasks + metrics floor (no GPU, seconds)
 scripts/check_robustness.sh [N] [--slam]  # check_launch_all N times (default 3) + VRAM/RAM peaks (~4 min/run)
@@ -268,7 +269,13 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   `/robotN/cmd_vel|odom|scan|joint_states`, TF frames `robotN/odom ->
   robotN/base_link -> robotN/laser` on the shared `/tf`, one `/clock`.
   Peak GPU memory ~1.2 GB. Check: `scripts/check_fleet_sim.sh`.
-- Next: Days 20–27 the fleet in
+  Fleet localization (Day 20) is done: `ros2 launch warehouse_bringup
+  fleet_localization.launch.py` runs one shared map_server (`/map`) and, per
+  namespace, robot_state_publisher (frame_prefix `robotN/`) + AMCL
+  (`/robotN/amcl_pose`, TF `map -> robotN/odom`). Map frame = world + 2 m in x.
+  Check: `scripts/check_fleet_amcl.sh` (all 3 AMCL poses within 0.2 m of
+  ground truth, also after driving robot2/robot3).
+- Next: Days 21–27 the fleet in
   Isaac Sim (AMCL x3, navigation, box handling, fleet manager); Days 28–30 polish, docs, demo.
 
 Notes: the headless sim runs faster than real time unless paced
