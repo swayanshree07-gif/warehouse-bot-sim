@@ -404,7 +404,28 @@ scripts/launch_all.sh --fleet --tasks --record --media   # demo: bag + mp4
   troubleshooting). A missed pick now re-docks once with a fresh lidar
   measure before it fails. **Isaac fleet check PASS: 6/6 tasks**, 0 failed,
   min separation 0.506 m, 38.8 tasks/h, idle 43 %, peak VRAM 1.2 GB.
-- Next: Day 30 final demo (`launch_all.sh --fleet --tasks --record --media`).
+- Day 30: final demo recorded in `out/demo/` (git-ignored) with
+  `timeout 900 scripts/launch_all.sh --fleet --seconds 780 --tasks --record
+  out/demo/bag --media out/demo/media`. Bag 54.6 MB / 597 s (BAG_PASS with
+  the fleet topic list), `demo.mp4` (overview + chase, 117 s, MEDIA_PASS).
+  Result: **5/6 tasks done, 0 failed**. The 6th (box_03 → shelf_C) was still
+  in `to_drop` when the 780 s run ended. 25 tasks/h, idle 38 %.
+  **Known issue:** robot2 and robot3 came within 0.18–0.20 m (AMCL poses) near
+  (−0.4, 0.2) at t≈425 s, so this run broke the 0.3 m separation rule; the
+  Day 29 run kept 0.506 m. Isaac fleet runs vary from run to run.
+
+## Final state (end of the 30-day plan)
+- Single robot: SLAM mapping, Nav2 + AMCL, lidar docking and MoveBox
+  pick/drop work reliably in Isaac Sim (Days 1–24).
+- Fleet (3 robots, namespaced, domain 21): the fleet manager uses nearest-free
+  assignment, cell reservations, shelf locks and parking; it reports throughput
+  and idle-time metrics. Light-sim scenario and robustness checks pass every
+  time. Isaac fleet runs: 6/6 (Day 29), 5/6 within the time limit plus one
+  close approach (Day 30).
+- Open work: in Isaac the separation guard has to rely on AMCL poses that
+  update slowly (≈0.5 Hz while a robot stands still). Next steps would be to
+  use odometry-fused poses for the separation and reservation checks, and to
+  add a hard stop when a robot comes within 0.4 m of another.
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.
