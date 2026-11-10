@@ -115,5 +115,39 @@ def test_drop_redocks_to_cancel_held_box_offset():
                        place_error_fn=place_error)
     ex.submit("box_00", "shelf_D")
     rep = run(ex, dict(STARTS))
-    assert rep["tasks_done"] == 1 and len(calls) == 1
+    assert rep["tasks_done"] == 1 and len(calls) == 2   # re-checked after the re-dock
     assert any("re-docking" in m for _, m in ex.events)
+
+
+def test_drop_redocks_at_most_twice():
+    """Day 26: a re-dock can stop short, so the offset is re-checked; at most 2 re-docks."""
+    calls = []
+
+    def place_error(n, box, slot):
+        calls.append(n)
+        return (0.08, 0.0)
+
+    ex = FleetExecutor(make().rm, Registry.load(os.path.join(BR, "config", "registry.yaml")), STARTS,
+                       place_error_fn=place_error)
+    ex.submit("box_00", "shelf_D")
+    rep = run(ex, dict(STARTS))
+    assert rep["tasks_done"] == 1
+    assert sum("re-docking" in m for _, m in ex.events) == 2
+
+
+def test_idle_robots_park_off_shelf_fronts():
+    """Day 26: after each task the robot parks off the shelf-front cells."""
+    ex = make()
+    for b, s in TASKS:
+        ex.submit(b, s)
+    rep = run(ex, dict(STARTS))
+    assert rep["tasks_done"] == 6
+    assert any("parks at" in m for _, m in ex.events)
+    poses = {n: ex.poses[n] for n in ex.poses}
+    for _ in range(600):                      # let the last robot finish parking
+        for n, (v, w) in ex.step(poses, 0.1).items():
+            x, y, th = poses[n]
+            poses[n] = (x + v * math.cos(th) * 0.1, y + v * math.sin(th) * 0.1, th + w * 0.1)
+    for n, a in ex.tm.agents.items():
+        assert a.cell not in ex.shelf_front, (n, a.cell)
+    assert rep["min_separation_m"] >= 0.45

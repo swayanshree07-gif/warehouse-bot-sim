@@ -18,9 +18,12 @@
 # --media (Day 26) captures overview + chase camera PNGs (480x270, every 0.5
 # sim-s) into DIR (default out/media/run_<date>_<time>) and, after the sim has
 # stopped, turns them into DIR/{overview,chase,demo}.mp4 (scripts/make_video.sh).
+# --fleet (Day 26) runs the 3-robot fleet stack instead (scripts/launch_fleet.sh;
+# accepts --seconds, --tasks, --record [DIR], --media [DIR]).
 # Logs: out/logs/launch_all_{sim,nav2,tm,health,bag,video}.log (override the prefix
 # with LAUNCH_ALL_LOG_PREFIX).
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ "$1" = "--fleet" ]; then shift; exec bash "$ROOT/scripts/launch_fleet.sh" "$@"; fi
 source "$ROOT/env.sh"
 source "$ROOT/scripts/lib.sh"
 mkdir -p "$ROOT/out/logs"
@@ -45,7 +48,7 @@ while [ $# -gt 0 ]; do
     --media)
       if [ -n "$2" ] && [ "${2#--}" = "$2" ]; then MEDIA="$2"; shift 2
       else MEDIA="$ROOT/out/media/run_$(date +%Y%m%d_%H%M%S)"; shift; fi ;;
-    -h|--help) sed -n 2,25p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,27p "$0"; exit 0 ;;
     *) echo "unknown argument: $1"; exit 2 ;;
   esac
 done

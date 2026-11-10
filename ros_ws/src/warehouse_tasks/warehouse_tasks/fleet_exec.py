@@ -48,7 +48,7 @@ class FleetExecutor:
         self.measure_fn, self.settle_s = measure_fn, settle_s
         self.backup_lat, self.backup_m = backup_lat, backup_m
         self.dock_goal, self.settle, self._dt = {}, {}, 0.0
-        self.failed_out, self.fixed = set(), set()
+        self.failed_out, self.fixed = set(), {}   # fixed: name -> re-docks done
         self.place_error_fn = place_error_fn
         """poses: name -> (x, y, yaw_rad) current map-frame poses."""
         self.rm = roadmap
@@ -68,6 +68,16 @@ class FleetExecutor:
             self.phase[n] = ("idle", -1, 0)
             self.robot_time[n] = {"idle": 0.0, "busy": 0.0, "traffic_wait": 0.0}
         self.target = {n: roadmap.to_world(a.cell) for n, a in self.tm.agents.items()}
+        # Day 26: cells in front of shelf slots (approach cells + neighbours).
+        # Robots park off these after each task so a carrying robot (box sticks
+        # ~0.5 m out in front) never has to turn next to a parked robot.
+        self.shelf_front = set()
+        for sh in registry.shelves.values():
+            for sl in sh["slots"]:
+                c = roadmap.nearest_free(roadmap.to_cell(*sl["approach"][:2]))
+                self.shelf_front |= {c, *roadmap.neighbors(c)}
+        self.progress = {n: (self.t, tuple(p[:2])) for n, p in poses.items()}
+        self.stalls = 0
 
     # ---- status helpers (same names as LightSim) -------------------------
     def pos(self, name):
@@ -138,6 +148,43 @@ class FleetExecutor:
                     self._log(f"{o.name} steps aside for {name}")
         return False
 
+    def _park(self, name):
+        """Send a robot that just went idle to the nearest cell off the shelf
+        fronts and off other robots' paths/goals."""
+        a = self.tm.agents[name]
+        avoid = set(self.shelf_front)
+        for o in self.tm.agents.values():
+            if o is not a:
+                avoid |= {o.cell, *o.path, *([o.goal] if o.goal else [])}
+        if a.cell not in avoid:
+            return
+        route = self.tm._refuge_route(a, avoid)
+        if route:
+            a.path, a.goal = route, route[-1]
+            self._log(f"{name} parks at {route[-1]}")
+
+    def _stall_check(self, limit=30.0, moved=0.05):
+        """A busy robot that has not moved `moved` m in `limit` s while
+        travelling asks idle robots within 1.2 m to step aside."""
+        for n, (ph, _, _) in self.phase.items():
+            t0, p0 = self.progress[n]
+            if ph == "idle" or math.dist(p0, self.poses[n][:2]) > moved:
+                self.progress[n] = (self.t, tuple(self.poses[n][:2]))
+                continue
+            if ph in ("to_pick", "to_drop") and self.t - t0 > limit:
+                self.stalls += 1
+                self.progress[n] = (self.t, tuple(self.poses[n][:2]))
+                me = self.tm.agents[n]
+                avoid = {me.cell, *me.path, *self.rm.neighbors(me.cell)}
+                for o in self.tm.agents.values():
+                    if o is me or self.phase[o.name][0] != "idle" or o.path:
+                        continue
+                    if math.dist(self.poses[o.name][:2], self.poses[n][:2]) < 1.2:
+                        route = self.tm._refuge_route(o, avoid | self.shelf_front)
+                        if route:
+                            o.path, o.goal = route, route[-1]
+                            self._log(f"{n} stalled; {o.name} steps aside")
+
     def _set(self, name, ph, tid=-1, sub=0):
         self.phase[name] = (ph, tid, sub)
         if ph in TRAFFIC:
@@ -172,6 +219,7 @@ class FleetExecutor:
             self.tm.set_goal(robot.name, self._cell(task.pick_pose))
             self._log(f"task {task.id} ({task.box_id}) -> {robot.name}")
         self._separation()
+        self._stall_check()
         cmds = {}
         for n in self.phase:
             cmds[n] = self._manip(n) if self.phase[n][0] not in TRAFFIC else None
@@ -260,7 +308,7 @@ class FleetExecutor:
                     if step == 3 and not pick and self._place_fix(n, tid, slot, goal, sub):
                         return (0.0, 0.0)
                     if step == 3:
-                        self.fixed.discard(n)
+                        self.fixed.pop(n, None)
                         kind = "pick" if pick else "drop"
                         self._set(n, kind, tid)
                         self.requests.append((n, kind, self.fleet.tasks[tid].box_id))
@@ -318,21 +366,23 @@ class FleetExecutor:
                     self._log(f"{n} done task {tid} ({task.box_id})")
                     self._set(n, "idle")
                     self.tm.agents[n].goal = None
+                    self._park(n)
                 return (0.0, 0.0)
             return (v, w)
         return (0.0, 0.0)
 
-    def _place_fix(self, n, tid, slot, goal, sub, tol=0.03):
+    def _place_fix(self, n, tid, slot, goal, sub, tol=0.05, max_fix=2):
         """Before a drop: the virtual gripper keeps the box's pick-time offset,
         so check where the held box really is (place_error_fn, e.g. /boxes)
-        and re-dock once with the dock goal shifted by the error. Returns True
-        if a re-dock was started."""
-        if self.place_error_fn is None or n in self.fixed:
+        and re-dock (up to max_fix times, Day 26: one re-dock could stop short)
+        with the dock goal shifted by the error. Returns True if a re-dock was
+        started."""
+        if self.place_error_fn is None or self.fixed.get(n, 0) >= max_fix:
             return False
         err = self.place_error_fn(n, self.fleet.tasks[tid].box_id, slot)
         if err is None or math.hypot(*err) < tol:
             return False
-        self.fixed.add(n)
+        self.fixed[n] = self.fixed.get(n, 0) + 1
         self.dock_goal[n] = (goal[0] - err[0], goal[1] - err[1], goal[2])
         self._log(f"{n} held box off by {err[0]:+.3f},{err[1]:+.3f} m; re-docking")
         self._set(n, "dock_in", tid, sub + 3)     # step 6: back up, then creep in again
@@ -356,6 +406,7 @@ class FleetExecutor:
             "rejected": len(self.rejected),
             "min_separation_m": None if math.isinf(self.min_sep) else round(self.min_sep, 3),
             "deadlocks_resolved": self.tm.deadlocks,
+            "stalls": self.stalls,
             "per_robot_tasks": {n: sum(t.robot == n for t in tasks) for n in self.fleet.robots},
             "tasks": [{"id": t.id, "box": t.box_id, "robot": t.robot, "state": t.state,
                        "dst": [t.plan["dst_shelf"], t.plan["dst_slot"]],

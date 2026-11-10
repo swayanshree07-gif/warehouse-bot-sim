@@ -32,6 +32,16 @@ scripts/launch_all.sh [--slam] [--seconds 600] [--record [DIR]] [--media [DIR]]
 # wait for ALL_READY, then in a second shell:
 source ./env.sh && python3 scripts/move_box.py box_09 shelf_D
 ```
+Fleet mode (Day 26), 3 robots + fleet manager in Isaac with one command:
+```bash
+scripts/launch_all.sh --fleet [--seconds 600] [--tasks] [--record [DIR]] [--media [DIR]]
+# FLEET_READY, then send tasks:  python3 scripts/fleet_client.py "box_00 shelf_D" ...
+```
+It runs `scripts/launch_fleet.sh`: fleet sim, per-robot AMCL, `fleet_isaac.py`,
+optional bag of `/robotN/*`, `/fleet/*`, `/boxes`, `/tf`, `/map` (about 55 MB for
+10 min) and overview + robot1 chase mp4s. `--tasks` sends the 6 demo tasks and
+stops when they are done. Logs: `out/logs/launch_fleet_*.log`.
+
 `launch_all.sh` starts `run_sim.sh` (spawn at world (-2, 0) = map origin), Nav2
 (AMCL on the packaged map, or slam_toolbox from an empty map with `--slam`) and
 `task_manager` (`backend:=ros`). Then it runs `scripts/health_check.py` (topics
@@ -164,6 +174,7 @@ scripts/check_fleet_nav.sh   # Isaac + AMCL x3 + traffic-manager follower: 3 rob
 scripts/check_fleet_amcl.sh  # Isaac + AMCL x3 on saved map: each /robotN/amcl_pose within 0.2 m of ground truth (~1.5 min)
 scripts/check_fleet_sim.sh   # Isaac, 3 namespaced robots: 9 /robotN/{cmd_vel,odom,scan} topics, robotN/* TF, /robot2/cmd_vel moves only robot2, VRAM < 7 GB (~1 min)
 scripts/check_fleet_traffic.sh   # Isaac: head-on swap + crossing with reservations, GT min sep >= 0.45 m (~2.5 min)
+scripts/check_launch_fleet.sh    # launch_all.sh --fleet --tasks --record --media: 6 tasks, no leftovers, bag < 300 MB with /robotN topics, media valid (~14 min)
 scripts/check_fleet_isaac.sh     # Isaac fleet scenario: 3 robots, 6 chained pick/drop tasks over /fleet/tasks, boxes at targets, metrics JSON (~8 min)
 scripts/check_fleet_manager.sh   # fleet_manager ROS 2 node (light backend): 6 tasks over /fleet/tasks all done, /fleet/status assignments (~30 s)
 scripts/check_fleet_scenario.sh  # light sim 3 robots / 9 tasks + metrics floor (no GPU, seconds)
@@ -311,9 +322,15 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   the robot re-docks once to cancel the pick offset. A docked robot also
   reserves the neighbour cell it overhangs ("ghost" cell). Report:
   `out/fleet_isaac_report.json`. Check: `scripts/check_fleet_isaac.sh`.
-- Status: check_fleet_isaac.sh not passing yet (5/6; carried-box overhang stall).
-- Next: finish Day 25, then Day 26 `launch_all.sh --fleet` + bag/video; Day 27 fleet robustness 3x;
-  Days 28–30 polish, docs, demo.
+- Day 26: idle robots park off the shelf fronts after each task, a stall
+  detector asks idle robots to step aside, and drops re-dock up to 2 times.
+  `launch_all.sh --fleet` (sim + AMCL x3 + fleet manager + bag + video) works
+  end to end: bag 55 MB with all `/robotN/*` topics, overview/chase/demo mp4.
+- Status: the Isaac fleet scenario is still not reliable. Runs gave 6/6 tasks
+  with 5/6 boxes placed, then 4/6, then 5/6. Open problems: re-dock accuracy
+  (about ±5 cm) and jams when two robots work on neighbouring slots (0.5 m apart).
+- Next: Day 27 is a shelf lock (one robot docking per shelf) and a lidar
+  re-measure on re-dock, then 3x robustness. Days 28–30 are polish, docs and the demo.
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.

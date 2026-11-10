@@ -28,6 +28,9 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--seconds", type=float, default=90.0)
 ap.add_argument("--pose-every", type=float, default=0.5)
 ap.add_argument("--box-every", type=float, default=1.0)
+ap.add_argument("--capture", default="", help="write overview + robot1 chase PNG frames here (Day 26)")
+ap.add_argument("--capture-every", type=float, default=0.5, help="sim seconds between frames")
+ap.add_argument("--capture-res", default="480x270", help="WxH of each camera")
 ap.add_argument("--starts", nargs="*", default=[], help="ns=x,y,yaw_deg overrides")
 args = ap.parse_args()
 
@@ -66,6 +69,14 @@ peers = []
 handlers = [BoxHandler(stage, robot=prim_path(ns), ns=ns, peers=peers, owns_boxes=(i == 0))
             for i, ns in enumerate(STARTS)]
 
+recorder = None
+if args.capture:
+    from media import MediaRecorder, build_cameras, warm_up  # noqa: E402
+
+    w, h = (int(v) for v in args.capture_res.lower().split("x"))
+    recorder = MediaRecorder(stage, args.capture, every=args.capture_every, res=(w, h),
+                             cameras=build_cameras(stage, robot_path=prim_path(next(iter(STARTS)))))
+
 
 def pose(ns):
     p, q = get_world_pose(f"{prim_path(ns)}/chassis")
@@ -89,6 +100,9 @@ signal.signal(signal.SIGTERM, lambda s, f: _stop.update(sig=s))
 tl = omni.timeline.get_timeline_interface()
 tl.play()
 app.update()
+if recorder is not None:
+    warm_up(app)
+    print(f"CAPTURE_ON dir={args.capture} every={args.capture_every} res={args.capture_res}", flush=True)
 print(f"VRAM_MB={vram_mb()}", flush=True)
 print("SIM_READY", flush=True)
 wall0, sim0, next_pose, next_vram = time.time(), tl.get_current_time(), 0.0, 0.0
@@ -116,11 +130,15 @@ while app.is_running() and time.time() - wall0 < args.seconds and _stop["sig"] i
     if time.time() - wall0 >= next_vram:
         print(f"VRAM_MB={vram_mb()}", flush=True)
         next_vram += 5.0
+    if recorder is not None:
+        recorder.capture(st)
     ahead = st - (time.time() - wall0)
     if ahead > 0:
         time.sleep(ahead)
 tl.stop()
 for h in reversed(handlers):   # the /boxes owner (index 0) shuts rclpy down last
     h.shutdown()
+if recorder is not None:
+    print(f"CAPTURE_DONE {recorder.summary()}", flush=True)
 print(f"SIM_DONE reason={'signal' if _stop['sig'] else 'time'}", flush=True)
 app.close()
