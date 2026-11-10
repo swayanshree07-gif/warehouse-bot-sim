@@ -78,6 +78,24 @@ class FleetExecutor:
                 self.shelf_front |= {c, *roadmap.neighbors(c)}
         self.progress = {n: (self.t, tuple(p[:2])) for n, p in poses.items()}
         self.stalls = 0
+        # Day 27: shelf lock. Neighbour slots are 0.5 m apart, less than a
+        # robot plus a carried box, so only one robot at a time may travel to,
+        # dock at or undock from a shelf. The lock is taken when a leg starts
+        # and released once the robot has left that shelf's front cells.
+        self.shelf_cells = {}
+        for sid, sh in registry.shelves.items():
+            cells = set()
+            for sl in sh["slots"]:
+                c = roadmap.nearest_free(roadmap.to_cell(*sl["approach"][:2]))
+                cells |= {c, *roadmap.neighbors(c)}
+            self.shelf_cells[sid] = cells
+        self.lock = {}          # shelf id -> robot name
+        self.leaving = {}       # robot name -> shelf id it still holds while leaving
+        self.lock_waits = 0
+        # Day 27: on a drop re-dock, re-measure the rack with the lidar after
+        # backing up (instead of a blind shift) and apply the accumulated
+        # held-box offset to the fresh measurement.
+        self.box_off, self.remeasure = {}, set()
 
     # ---- status helpers (same names as LightSim) -------------------------
     def pos(self, name):
@@ -185,6 +203,57 @@ class FleetExecutor:
                             o.path, o.goal = route, route[-1]
                             self._log(f"{n} stalled; {o.name} steps aside")
 
+    # ---- shelf lock (Day 27) ---------------------------------------------
+    def _leg_shelf(self, tid, pick):
+        return self.fleet.tasks[tid].plan["src_shelf" if pick else "dst_shelf"]
+
+    def _begin_leg(self, n, tid, pick):
+        """Start the to_pick/to_drop leg if the shelf lock can be taken;
+        otherwise wait (sub=1) off the shelf fronts."""
+        ph = "to_pick" if pick else "to_drop"
+        shelf = self._leg_shelf(tid, pick)
+        a = self.tm.agents[n]
+        a.hold_for = set()
+        if self.lock.get(shelf, n) == n:
+            if shelf not in self.lock:
+                self._log(f"{n} locks {shelf}")
+            self.lock[shelf] = n
+            if self.leaving.get(n) == shelf:
+                del self.leaving[n]
+            self._set(n, ph, tid, 0)
+            task = self.fleet.tasks[tid]
+            self.tm.set_goal(n, self._cell(task.pick_pose if pick else task.drop_pose))
+            return True
+        if self.phase[n][:3] != (ph, tid, 1):
+            self.lock_waits += 1
+            self._log(f"{n} waits for {shelf} (held by {self.lock[shelf]})")
+        self._set(n, ph, tid, 1)
+        a.goal = None
+        self._park(n)
+        return False
+
+    def _locks(self):
+        """Release locks of robots that have left a shelf front; start legs
+        of robots waiting for a lock."""
+        for n, shelf in list(self.leaving.items()):
+            a = self.tm.agents[n]
+            # physical cell, not "at target": Day 27 Isaac run 2 froze because a
+            # parked robot never settled within tol of its cell centre
+            if a.cell not in self.shelf_cells[shelf] \
+                    and self._cell(self.poses[n]) not in self.shelf_cells[shelf]:
+                del self.leaving[n]
+                if self.lock.get(shelf) == n:
+                    del self.lock[shelf]
+                    self._log(f"{n} releases {shelf}")
+        for n, (ph, tid, sub) in self.phase.items():
+            if ph in ("to_pick", "to_drop") and sub == 1 and not self.tm.agents[n].path:
+                self._begin_leg(n, tid, ph == "to_pick")
+
+    def _release(self, n, shelf):
+        """Robot finished at `shelf`: keep the lock until it is off the front."""
+        if self.lock.get(shelf) == n:
+            self.leaving[n] = shelf
+
     def _set(self, name, ph, tid=-1, sub=0):
         self.phase[name] = (ph, tid, sub)
         if ph in TRAFFIC:
@@ -214,10 +283,9 @@ class FleetExecutor:
         self._dt = dt
         self._try_submit()
         for task, robot in self.fleet.dispatch(now=self.t):
-            self._set(robot.name, "to_pick", task.id)
-            self.tm.agents[robot.name].hold_for = set()
-            self.tm.set_goal(robot.name, self._cell(task.pick_pose))
             self._log(f"task {task.id} ({task.box_id}) -> {robot.name}")
+            self._begin_leg(robot.name, task.id, pick=True)
+        self._locks()
         self._separation()
         self._stall_check()
         cmds = {}
@@ -258,7 +326,8 @@ class FleetExecutor:
             if ph in TRAFFIC and self._at_target(n):
                 for g in [g for g, o in self.tm.ghosts.items() if o == n]:
                     del self.tm.ghosts[g]
-            if ph in ("to_pick", "to_drop") and a.done and not a.hold_for and self._at_target(n):
+            if ph in ("to_pick", "to_drop") and self.phase[n][2] == 0 and a.done \
+                    and not a.hold_for and self._at_target(n):
                 self._set(n, "dock_in", tid, 0 if ph == "to_pick" else 10)
             elif ph == "idle":
                 self.fleet.robots[n].pose = (*self.poses[n][:2], 0.0)
@@ -309,6 +378,7 @@ class FleetExecutor:
                         return (0.0, 0.0)
                     if step == 3:
                         self.fixed.pop(n, None)
+                        self.box_off.pop(n, None)
                         kind = "pick" if pick else "drop"
                         self._set(n, kind, tid)
                         self.requests.append((n, kind, self.fleet.tasks[tid].box_id))
@@ -329,7 +399,9 @@ class FleetExecutor:
                     self._log(f"{n} rack not measured; AMCL dock")
                     self._set(n, ph, tid, sub - 3)
                     return (0.0, 0.0)
-                self.dock_goal[n] = goal = compose(p, rel)
+                goal = compose(p, rel)
+                off = self.box_off.get(n, (0.0, 0.0))
+                self.dock_goal[n] = goal = (goal[0] - off[0], goal[1] - off[1], goal[2])
                 lat = -math.sin(goal[2]) * (p[0] - goal[0]) + math.cos(goal[2]) * (p[1] - goal[1])
                 self._log(f"{n} lidar dock: lateral {lat:+.3f} m")
                 self._set(n, ph, tid, sub + 1 if abs(lat) > self.backup_lat else sub - 3)
@@ -338,7 +410,12 @@ class FleetExecutor:
                 back = (goal[0] - self.backup_m * math.cos(yaw), goal[1] - self.backup_m * math.sin(yaw))
                 v, w, ok = dock_cmd(p, back, yaw, v_max=0.12, tol=0.02)
                 if ok:
-                    self._set(n, ph, tid, sub - 4)
+                    if n in self.remeasure and self.measure_fn:   # re-dock: face + lidar again
+                        self.remeasure.discard(n)
+                        self._set(n, ph, tid, sub - 5)
+                    else:
+                        self.remeasure.discard(n)
+                        self._set(n, ph, tid, sub - 4)
                 return (v, w)
             if step == 2:                         # creep in
                 v, w, ok = dock_cmd(p, goal, yaw, v_max=0.12)
@@ -353,14 +430,13 @@ class FleetExecutor:
             v, w, ok = dock_cmd(p, ap, g[2] if g else math.radians(slot["dock"][2]), v_max=0.2, tol=0.03)
             if ok:
                 task = self.fleet.tasks[tid]
+                self._release(n, self._leg_shelf(tid, pick))
                 if n in self.failed_out:          # task already finished as failed
                     self.failed_out.discard(n)
                     self._set(n, "idle")
                     self.tm.agents[n].goal = None
                 elif pick:
-                    self._set(n, "to_drop", tid)
-                    self.tm.agents[n].hold_for = set()
-                    self.tm.set_goal(n, self._cell(task.drop_pose))
+                    self._begin_leg(n, tid, pick=False)
                 else:
                     self.fleet.finish(tid, ok=True, pose=(*p[:2], 0.0), now=self.t)
                     self._log(f"{n} done task {tid} ({task.box_id})")
@@ -383,6 +459,9 @@ class FleetExecutor:
         if err is None or math.hypot(*err) < tol:
             return False
         self.fixed[n] = self.fixed.get(n, 0) + 1
+        o = self.box_off.get(n, (0.0, 0.0))
+        self.box_off[n] = (o[0] + err[0], o[1] + err[1])
+        self.remeasure.add(n)
         self.dock_goal[n] = (goal[0] - err[0], goal[1] - err[1], goal[2])
         self._log(f"{n} held box off by {err[0]:+.3f},{err[1]:+.3f} m; re-docking")
         self._set(n, "dock_in", tid, sub + 3)     # step 6: back up, then creep in again
@@ -407,6 +486,7 @@ class FleetExecutor:
             "min_separation_m": None if math.isinf(self.min_sep) else round(self.min_sep, 3),
             "deadlocks_resolved": self.tm.deadlocks,
             "stalls": self.stalls,
+            "lock_waits": self.lock_waits,
             "per_robot_tasks": {n: sum(t.robot == n for t in tasks) for n in self.fleet.robots},
             "tasks": [{"id": t.id, "box": t.box_id, "robot": t.robot, "state": t.state,
                        "dst": [t.plan["dst_shelf"], t.plan["dst_slot"]],

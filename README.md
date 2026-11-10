@@ -178,6 +178,7 @@ scripts/check_launch_fleet.sh    # launch_all.sh --fleet --tasks --record --medi
 scripts/check_fleet_isaac.sh     # Isaac fleet scenario: 3 robots, 6 chained pick/drop tasks over /fleet/tasks, boxes at targets, metrics JSON (~8 min)
 scripts/check_fleet_manager.sh   # fleet_manager ROS 2 node (light backend): 6 tasks over /fleet/tasks all done, /fleet/status assignments (~30 s)
 scripts/check_fleet_scenario.sh  # light sim 3 robots / 9 tasks + metrics floor (no GPU, seconds)
+scripts/check_fleet_robustness.sh # Day 27: 3x light-sim scenario + 3x FleetExecutor on kinematic robots (shelf lock, 6/6 tasks), no GPU (seconds)
 scripts/check_robustness.sh [N] [--slam]  # check_launch_all N times (default 3) + VRAM/RAM peaks (~4 min/run)
 python3 -m pytest -q tests/  # pure-Python tests (no sim); run with system python3,
                              # not inside env.sh (the Isaac venv has no pytest)
@@ -326,11 +327,17 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   detector asks idle robots to step aside, and drops re-dock up to 2 times.
   `launch_all.sh --fleet` (sim + AMCL x3 + fleet manager + bag + video) works
   end to end: bag 55 MB with all `/robotN/*` topics, overview/chase/demo mp4.
-- Status: the Isaac fleet scenario is still not reliable. Runs gave 6/6 tasks
-  with 5/6 boxes placed, then 4/6, then 5/6. Open problems: re-dock accuracy
-  (about ±5 cm) and jams when two robots work on neighbouring slots (0.5 m apart).
-- Next: Day 27 is a shelf lock (one robot docking per shelf) and a lidar
-  re-measure on re-dock, then 3x robustness. Days 28–30 are polish, docs and the demo.
+- Day 27: shelf lock (one robot at a time travels to, docks at or undocks
+  from a shelf; others wait off the shelf fronts; `lock_waits` in the report)
+  and lidar re-measure on each drop re-dock (fresh rack measurement minus the
+  accumulated held-box offset). Fleet robustness without the GPU:
+  `scripts/check_fleet_robustness.sh` (3/3 PASS).
+- Status: the Isaac fleet scenario is still not reliable. Day 27 run 2: 1/6
+  tasks, two robots froze in `to_drop` (probably a shelf lock that was never
+  released; fixed, but the fix is not yet checked in Isaac). Min separation
+  0.507 m, peak VRAM 1.2 GB.
+- Next: re-run `check_fleet_isaac.sh` with the lock-release fix, then
+  Days 28–30 are polish, docs and the demo.
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.

@@ -151,3 +151,64 @@ def test_idle_robots_park_off_shelf_fronts():
     for n, a in ex.tm.agents.items():
         assert a.cell not in ex.shelf_front, (n, a.cell)
     assert rep["min_separation_m"] >= 0.45
+
+
+def test_shelf_lock_one_robot_per_shelf():
+    """Day 27: never two robots docking/undocking at the same shelf."""
+    ex = make()
+    for b, s in TASKS:
+        ex.submit(b, s)
+    poses, seen = dict(STARTS), []
+    orig = ex.step
+
+    def step(p, dt):
+        cmds = orig(p, dt)
+        per_shelf = {}
+        for n, (ph, tid, sub) in ex.phase.items():
+            if ph in ("dock_in", "pick", "drop", "dock_out"):
+                pick = ph == "pick" or (ph == "dock_in" and sub < 10) or (ph == "dock_out" and sub == 1)
+                sh = ex._leg_shelf(tid, pick)
+                per_shelf.setdefault(sh, []).append(n)
+                assert ex.lock.get(sh) == n, (n, sh, ex.lock)
+        seen.append(max((len(v) for v in per_shelf.values()), default=0))
+        return cmds
+    ex.step = step
+    rep = run(ex, poses)
+    assert rep["tasks_done"] == 6 and max(seen) == 1
+    assert all(ex.leaving.get(n) == s for s, n in ex.lock.items())
+    assert "lock_waits" in rep
+
+
+def test_redock_remeasures_with_lidar():
+    """Day 27: a drop re-dock backs up, measures the rack again and docks on
+    the fresh measurement shifted by the held-box offset."""
+    from warehouse_tasks.rack_align import wrap
+    meas, errs, drops = [], [], {}
+
+    def measure(n, shelf, slot):
+        meas.append(n)
+        x, y, yaw = ex.poses[n]
+        dx, dy, dyaw = slot["dock"][0] - x, slot["dock"][1] - y, math.radians(slot["dock"][2])
+        c, s = math.cos(yaw), math.sin(yaw)
+        return (c * dx + s * dy, -s * dx + c * dy, wrap(dyaw - yaw))
+
+    def place_error(n, box, slot):
+        errs.append(n)
+        return (0.0, 0.06) if len(errs) == 1 else (0.0, 0.0)
+
+    ex = FleetExecutor(make().rm, Registry.load(os.path.join(BR, "config", "registry.yaml")), STARTS,
+                       measure_fn=measure, place_error_fn=place_error)
+    ex.submit("box_00", "shelf_D")
+    orig = ex.action_done
+
+    def done(n, ok):
+        if ex.phase[n][0] == "drop":
+            drops[n] = ex.poses[n]
+        orig(n, ok)
+    ex.action_done = done
+    rep = run(ex, dict(STARTS))
+    assert rep["tasks_done"] == 1 and len(errs) == 2
+    assert len(meas) == 3                       # pick, drop, drop re-dock
+    slot = next(iter(ex.fleet.tasks.values())).plan["dst"]
+    (_, p), = drops.items()
+    assert abs(p[1] - (slot["dock"][1] - 0.06)) < 0.03 and abs(p[0] - slot["dock"][0]) < 0.03
