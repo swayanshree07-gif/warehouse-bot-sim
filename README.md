@@ -188,6 +188,57 @@ Sim checks also require an `*_OK`/`SIM_READY` marker in their logs, because
 `SimulationApp.close()` can end the process with exit code 0 before `sys.exit()`
 runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
 
+## Architecture
+```
+                       ROS 2 Jazzy, ROS_DOMAIN_ID=21, localhost only
+ ┌──────────────── Isaac Sim 6.2 (headless, sim/run_fleet_sim.py) ───────────────┐
+ │ warehouse scene (4 racks, 10 boxes)   robot1..3: diff drive + lift + gripper  │
+ │ OmniGraph: /clock /robotN/{cmd_vel,odom,scan,joint_states}  TF robotN/odom->… │
+ │ box_handler: /robotN/lift/*, /robotN/gripper/{attach,detach}, /boxes          │
+ │ media.py: overview + chase cameras -> PNG -> mp4                              │
+ └───────────────▲───────────────────────────────┬───────────────────────────────┘
+        cmd_vel, │ gripper/lift                  │ scan, odom, TF, /boxes
+ ┌───────────────┴───────────┐   ┌───────────────▼──────────────────────────────┐
+ │ scripts/fleet_isaac.py    │◄──┤ fleet_localization.launch.py                 │
+ │  └ fleet_exec.FleetExecutor│   │ map_server (/map) + per robot RSP + AMCL     │
+ │     ├ fleet.py  nearest-free assignment, FIFO, box/slot claims              │
+ │     ├ traffic.py grid roadmap, A*, cell reservations, deadlock yield        │
+ │     ├ rack_align.py lidar rack-face docking                                 │
+ │     └ metrics.py tasks/h, idle %, traffic wait                              │
+ └───────▲───────────────┬───┘   └──────────────────────────────────────────────┘
+ /fleet/tasks (String     │ /fleet/status (JSON)
+ "box_id shelf_id")       ▼
+   scripts/fleet_client.py            rosbag (mcap) of /robotN/*, /fleet/*, /boxes, /tf, /map
+```
+Single-robot mode (`launch_all.sh` without `--fleet`) uses `sim/run_sim.py`,
+Nav2 + AMCL or slam_toolbox, and the `task_manager` MoveBox action server.
+The light 2D simulator (`warehouse_tasks/lightsim.py`) runs the same fleet
+logic without a GPU for fast tests.
+
+## Fresh-shell walkthrough
+```bash
+cd ~/thirty-days/projects/warehouse-bot-sim
+scripts/check_env.sh                       # env sanity (domain 21, paths)
+scripts/build_ws.sh && source ./env.sh     # build ros_ws, load environment
+/usr/bin/python3 -m pytest -q tests        # ~170 unit tests, no GPU, ~2 s
+scripts/lint.sh                            # flake8 + bash -n
+timeout 300 scripts/check_fleet_robustness.sh   # fleet logic, light sim, 3 runs
+timeout 1000 scripts/check_fleet_isaac.sh       # 3 robots, 6 tasks in Isaac (~12 min)
+scripts/launch_all.sh --fleet --tasks --record --media   # demo: bag + mp4
+```
+
+## Troubleshooting
+| Symptom | Cause / fix |
+|---|---|
+| Nodes from other projects show up in `ros2 topic list` | shell not isolated: open a new shell and `source ./env.sh` (domain 21, localhost) |
+| `colcon build` picks up the Isaac venv python | use `scripts/build_ws.sh` (clean shell with `/opt/ros/jazzy` + system python) |
+| Sim seems hung after a run / VRAM still used | `pkill -f run_fleet_sim`; `scripts/lib.sh` cleanup also stops `omni.telemetry.transmitter` and the ros2 daemon; check `nvidia-smi` |
+| Robots in Isaac stop moving together | lockstep traffic ticks; see `settled` / `lock_waits` in `out/fleet_isaac_report.json` and the fm log in `out/logs/` |
+| Pick or drop fails at a shelf | docking error > grip tolerance (0.10 m); the robot re-docks once with a fresh lidar measure (Day 29), drops re-dock up to 2 times |
+| AMCL pose far off | robot spawned away from `sim/fleet_layout.py` starts; restart, or check `scripts/check_fleet_amcl.sh` |
+| Out of GPU memory | keep headless, capture res 480x270; fleet peak is ~1.2 GB VRAM |
+| `out/` grows large | bags/media are git-ignored; delete old `out/bags/run_*` (keep < 4 GB) |
+
 ## Layout
 | Path | Contents |
 |---|---|
@@ -211,6 +262,9 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
 | `ros_ws/src/warehouse_bringup` | URDF, `description`/`slam`/`nav2` launch files, slam_toolbox + Nav2 params, saved map, registry |
 | `ros_ws/src/warehouse_interfaces` | `MoveBox.action`, `BoxState.msg`, `BoxStates.msg` |
 | `ros_ws/src/warehouse_tasks` | `task_manager` node: MoveBox action server, pick/place state machine (`mission.py`), registry belief, docking law (`line_track.py`), lidar rack-face measurement (`rack_align.py`), mock + ROS backends |
+| `sim/run_fleet_sim.py`, `sim/fleet_layout.py`, `sim/fleet_boxes.py` | 3-robot Isaac scene, spawn poses, per-robot box handling |
+| `ros_ws/src/warehouse_tasks` (fleet) | `fleet.py`, `traffic.py`, `fleet_exec.py`, `fleet_manager.py`, `lightsim.py`, `metrics.py` |
+| `scripts/fleet_isaac.py`, `launch_fleet.sh` | fleet manager Isaac backend, fleet launcher |
 | `tests/` | pytest tests that run without Isaac Sim |
 | `ros_ws/src/` | own ROS 2 packages (colcon) |
 | `out/` | logs, maps, bags, media (git-ignored, keep < 4 GB) |
@@ -346,7 +400,11 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   for details. Isaac fleet run after the fix: 5/6 tasks (was 1/6), no
   freeze; the 6th failed a pick by 9 mm (box 0.109 m from the grip point,
   tolerance 0.10 m). Min separation 0.502 m, peak VRAM 1.2 GB.
-- Next: Day 29 docs, Day 30 demo (`launch_all.sh --fleet`).
+- Day 29: docs (architecture diagram, fresh-shell walkthrough,
+  troubleshooting). A missed pick now re-docks once with a fresh lidar
+  measure before it fails. **Isaac fleet check PASS: 6/6 tasks**, 0 failed,
+  min separation 0.506 m, 38.8 tasks/h, idle 43 %, peak VRAM 1.2 GB.
+- Next: Day 30 final demo (`launch_all.sh --fleet --tasks --record --media`).
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.

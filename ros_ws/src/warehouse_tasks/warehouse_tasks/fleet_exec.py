@@ -48,6 +48,7 @@ class FleetExecutor:
         self.measure_fn, self.settle_s = measure_fn, settle_s
         self.backup_lat, self.backup_m = backup_lat, backup_m
         self.dock_goal, self.settle, self._dt = {}, {}, 0.0
+        self.pick_retry = {}                      # name -> pick re-docks done
         self.failed_out, self.fixed = set(), {}   # fixed: name -> re-docks done
         self.place_error_fn = place_error_fn
         """poses: name -> (x, y, yaw_rad) current map-frame poses."""
@@ -273,6 +274,15 @@ class FleetExecutor:
     def action_done(self, name, ok):
         ph, tid, _ = self.phase[name]
         task = self.fleet.tasks[tid]
+        if not ok and ph == "pick" and self.pick_retry.get(name, 0) < 1:
+            # Day 29: a pick just outside the grip tolerance -> back up,
+            # re-measure the rack with the lidar and dock again, once.
+            self.pick_retry[name] = self.pick_retry.get(name, 0) + 1
+            self._log(f"{name} pick of {task.box_id} missed; re-docking once")
+            self.remeasure.add(name)
+            self._set(name, "dock_in", tid, 6)
+            return
+        self.pick_retry.pop(name, None)
         if not ok:
             self._log(f"{name} {ph} of {task.box_id} FAILED")
             self.fleet.finish(tid, ok=False, reason=f"{ph} failed", now=self.t)

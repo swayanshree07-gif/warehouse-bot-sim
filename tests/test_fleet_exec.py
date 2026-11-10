@@ -244,3 +244,20 @@ def test_stuck_off_centre_robot_does_not_freeze_fleet():
     # robot1 is pinned 0.14 m off its cell on purpose, so 0.5 - 0.14 m is the floor
     assert rep["tasks_done"] == 6 and rep["min_separation_m"] >= 0.35
     assert rep["settled"] >= 1
+
+
+def test_missed_pick_redocks_once_then_succeeds():
+    """Day 29: the first pick attempt misses (box just outside the grip
+    tolerance); the robot re-docks once and the second attempt succeeds."""
+    ex = make()
+    ex.submit("box_00", "shelf_D")
+    orig, calls = ex.action_done, []
+
+    def done(n, ok):
+        calls.append(ex.phase[n][0])
+        orig(n, ok and len(calls) > 1)
+    ex.action_done = done
+    rep = run(ex, dict(STARTS))
+    assert rep["tasks_done"] == 1 and rep["tasks_failed"] == 0
+    assert calls[:2] == ["pick", "pick"]
+    assert ex.pick_retry == {}
