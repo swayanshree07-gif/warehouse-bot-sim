@@ -30,7 +30,7 @@ def min_separation(samples):
 
 
 def evaluate(sim_text, follow_text, goals, peak, ram, to_map):
-    samples = [parse_fpose(l) for l in sim_text.splitlines() if l.startswith("FPOSE")]
+    samples = [parse_fpose(ln) for ln in sim_text.splitlines() if ln.startswith("FPOSE")]
     m = re.search(r"FOLLOW_DONE .*deadlocks=(\d+)", follow_text)
     res = {"samples": len(samples), "done": bool(m),
            "deadlocks": int(m.group(1)) if m else -1,

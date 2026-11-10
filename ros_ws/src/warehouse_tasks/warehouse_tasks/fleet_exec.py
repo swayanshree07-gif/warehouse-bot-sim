@@ -78,6 +78,14 @@ class FleetExecutor:
                 self.shelf_front |= {c, *roadmap.neighbors(c)}
         self.progress = {n: (self.t, tuple(p[:2])) for n, p in poses.items()}
         self.stalls = 0
+        # Day 28: lockstep watchdog. Traffic ticks only when every robot is
+        # within `tol` of its cell centre; in Isaac a robot can stop ~0.14 m
+        # off it (wheels/contacts) and the whole fleet froze. A robot that has
+        # stood still `settle_s` s inside its target cell counts as arrived.
+        self.still = {n: (self.t, tuple(p)) for n, p in poses.items()}
+        self.settle_s, self.settle_moved = 5.0, 0.02
+        self.settled = 0
+        self._settled_logged = set()
         # Day 27: shelf lock. Neighbour slots are 0.5 m apart, less than a
         # robot plus a carried box, so only one robot at a time may travel to,
         # dock at or undock from a shelf. The lock is taken when a leg starts
@@ -280,6 +288,11 @@ class FleetExecutor:
         Returns name -> (v, w)."""
         self.poses.update(poses)
         self.t += dt
+        for n, (t0, p0) in self.still.items():
+            p = self.poses[n]
+            dyaw = abs(math.remainder(p[2] - p0[2], math.tau))
+            if math.dist(p0[:2], p[:2]) > self.settle_moved or dyaw > 0.05:
+                self.still[n] = (self.t, tuple(p))
         self._dt = dt
         self._try_submit()
         for task, robot in self.fleet.dispatch(now=self.t):
@@ -312,13 +325,30 @@ class FleetExecutor:
             # settle on the exact centre (0.04 m) but tick once within tol
             v, w, _ = cmd_to(self.poses[n], self.target[n], tol=0.04)
             cmds[n] = (v, w)
-            arrived &= self._at_target(n)
+            arrived &= self._tick_ready(n)
         self._arrived = arrived
         return cmds, arrived
 
     def _at_target(self, n):
         p, t = self.poses[n], self.target[n]
         return math.hypot(p[0] - t[0], p[1] - t[1]) < self.tol
+
+    def _tick_ready(self, n):
+        """Lockstep gate only (not used for dock_in)."""
+        if self._at_target(n):
+            return True
+        p, t = self.poses[n], self.target[n]
+        d = math.hypot(p[0] - t[0], p[1] - t[1])
+        # watchdog: still for settle_s and physically inside the target cell
+        if self.t - self.still[n][0] >= self.settle_s \
+                and self.rm.to_cell(*p[:2]) == self.rm.to_cell(*t[:2]):
+            if self.phase[n][0] in TRAFFIC and n not in self._settled_logged:
+                self._settled_logged.add(n)
+                self.settled += 1
+                self._log(f"{n} settled {d:.2f} m off its cell centre; counts as arrived")
+            return True
+        self._settled_logged.discard(n)
+        return False
 
     def _arrivals(self):
         for n, (ph, tid, _) in list(self.phase.items()):
@@ -486,6 +516,7 @@ class FleetExecutor:
             "min_separation_m": None if math.isinf(self.min_sep) else round(self.min_sep, 3),
             "deadlocks_resolved": self.tm.deadlocks,
             "stalls": self.stalls,
+            "settled": self.settled,
             "lock_waits": self.lock_waits,
             "per_robot_tasks": {n: sum(t.robot == n for t in tasks) for n in self.fleet.robots},
             "tasks": [{"id": t.id, "box": t.box_id, "robot": t.robot, "state": t.state,

@@ -26,8 +26,8 @@ REG = os.path.join(ROOT, "ros_ws/src/warehouse_bringup/config/registry.yaml")
 
 def evaluate(sim_text, report, client_rc, peak, ram, registry):
     lines = sim_text.splitlines()
-    samples = [parse_fpose(l) for l in lines if l.startswith("FPOSE")]
-    fb = [l for l in lines if l.startswith("FBOXES")]
+    samples = [parse_fpose(ln) for ln in lines if ln.startswith("FPOSE")]
+    fb = [ln for ln in lines if ln.startswith("FBOXES")]
     last = parse_fboxes(fb[-1]) if fb else {"boxes": {}}
     checks = []
 

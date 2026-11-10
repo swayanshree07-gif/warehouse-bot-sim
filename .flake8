@@ -1,0 +1,9 @@
+# Project lint config (Day 28). Run: /usr/bin/python3 -m flake8
+# Style-only plugin codes (quotes Q, docstrings D, import order I) are not enforced.
+[flake8]
+max-line-length = 120
+select = E,W,F,C,B
+extend-ignore = W503,W504
+per-file-ignores =
+    sim/urdf_gen.py:E501
+exclude = ros_ws/build,ros_ws/install,ros_ws/log,out,Personal,__pycache__,.venv

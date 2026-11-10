@@ -48,7 +48,7 @@ def _joint(name, jtype, parent, child, xyz, axis=None, limit=None):
     a = f'\n    <axis xyz="{_f(*axis)}"/>' if axis else ""
     lim = ""
     if limit:
-        lim = f'\n    <limit lower="{_f(limit[0])}" upper="{_f(limit[1])}" effort="{_f(limit[2])}" velocity="{_f(limit[3])}"/>'
+        lim = f'\n    <limit lower="{_f(limit[0])}" upper="{_f(limit[1])}" effort="{_f(limit[2])}" velocity="{_f(limit[3])}"/>'  # noqa: E501
     return f"""  <joint name="{name}" type="{jtype}">
     <parent link="{parent}"/><child link="{child}"/>
     <origin xyz="{_f(*xyz)}" rpy="0 0 0"/>{a}{lim}

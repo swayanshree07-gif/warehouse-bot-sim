@@ -26,7 +26,8 @@ On a failed step the robot is stopped and the result names the state and the
 backend's message. If it failed at/near a rack without holding a box
 (DOCK_PICK, attach in LIFT, DOCK_PLACE) it first backs out to the approach pose
 (RECOVER), so the next task's Nav2 goal does not start inside the inflation
-zone. With a box held it stays put (backing out could drag the box). If the box was picked up already, the failure message says
+zone. With a box held it stays put (backing out could drag the box). If the box was picked up
+already, the failure message says
 so ("box still held") so an operator knows the gripper state. Cancellation is
 checked between steps.
 """

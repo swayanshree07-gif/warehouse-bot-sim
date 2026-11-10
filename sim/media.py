@@ -101,4 +101,3 @@ def warm_up(app, n=20):
     """A few extra frames so the RTX pipeline produces non-black images."""
     for _ in range(n):
         app.update()
-

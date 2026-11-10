@@ -71,7 +71,7 @@ def run(seconds):
 
 results = {}
 run(0.5)
-x0, y0, z0, *_ , yaw0 = pose()
+x0, y0, z0, *_, yaw0 = pose()
 results["settle"] = abs(z0 - P.chassis_centre_z()) < 0.02
 print(f"ROBOT_SETTLE x={x0:.3f} y={y0:.3f} z={z0:.3f} (expect {P.chassis_centre_z():.3f})", flush=True)
 

@@ -45,9 +45,9 @@ LASER_RATE_HZ = 10.0               # published every N physics ticks
 # attach creates a fixed joint lift<->box (keeping the current relative pose)
 # if a box centre is within GRIP_TOL of that grip point, then the lift raises
 # LIFT_CLEARANCE so the box comes off the rack top. Place = the reverse.
-GRIP_REACH = 0.50                  # m, base_link -> box centre (x forward); slot
-                                   # centres are 0.2 m inside the rack face, so
-                                   # the chassis front stops 5 cm short of it
+# GRIP_REACH: base_link -> box centre (x forward); slot centres are 0.2 m
+# inside the rack face, so the chassis front stops 5 cm short of it.
+GRIP_REACH = 0.50                  # m
 GRIP_TOL = 0.10                    # m, max grip point -> box centre distance
 LIFT_CLEARANCE = 0.03              # m, lift height while carrying a box
 DOCK_STANDOFF = GRIP_REACH         # base_link -> slot centre at the dock pose

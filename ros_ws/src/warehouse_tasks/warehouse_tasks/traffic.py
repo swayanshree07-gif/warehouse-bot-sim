@@ -86,7 +86,7 @@ class Roadmap:
     @classmethod
     def from_ascii(cls, text, cell=1.0):
         """Rows top->bottom; '#' blocked, anything else free. (0,0) = bottom-left."""
-        lines = [ln for ln in text.strip("\n").splitlines()]
+        lines = text.strip("\n").splitlines()
         rows = len(lines)
         cols = max(len(ln) for ln in lines)
         free = set()
@@ -386,4 +386,4 @@ class TrafficManager:
                 return self.tick_no, history
             history.append(self.tick())
         raise RuntimeError(f"not finished after {max_ticks} ticks: "
-                           f"{ {n: (a.cell, a.goal) for n, a in self.agents.items()} }")
+                           + str({n: (a.cell, a.goal) for n, a in self.agents.items()}))

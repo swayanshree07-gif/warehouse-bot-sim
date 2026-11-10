@@ -143,6 +143,7 @@ Frames: `map` (slam_toolbox) -> `odom` (sim, starts at the spawn pose) ->
 ## Checks
 Each check prints `ok`/`FAIL` lines and `<name>: PASS|FAIL`; exit code 0 = PASS.
 ```bash
+scripts/lint.sh              # flake8 (.flake8 config) + bash -n on all scripts (seconds)
 scripts/check_env.sh         # environment isolation + required packages (seconds)
 scripts/smoke_clock.sh       # headless Isaac Sim publishes /clock on domain 21 (~1 min)
 scripts/check_scene.sh       # builds out/warehouse.usd, boxes stay put (~30 s)
@@ -336,8 +337,16 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   tasks, two robots froze in `to_drop` (probably a shelf lock that was never
   released; fixed, but the fix is not yet checked in Isaac). Min separation
   0.507 m, peak VRAM 1.2 GB.
-- Next: re-run `check_fleet_isaac.sh` with the lock-release fix, then
-  Days 28–30 are polish, docs and the demo.
+- Day 28: lint is clean (`scripts/lint.sh`, flake8 config in `.flake8`).
+  An Isaac re-run showed the Day 27 lock fix works, but the fleet froze in
+  another way: traffic ticks are lockstep and one robot stood still 0.14 m
+  off its cell centre. Fixed with a lockstep watchdog (still for 5 s inside
+  its target cell counts as arrived; used for the tick gate only, not for
+  docking). Unit test plus light robustness check 3/3 pass. See PROGRESS.md
+  for details. Isaac fleet run after the fix: 5/6 tasks (was 1/6), no
+  freeze; the 6th failed a pick by 9 mm (box 0.109 m from the grip point,
+  tolerance 0.10 m). Min separation 0.502 m, peak VRAM 1.2 GB.
+- Next: Day 29 docs, Day 30 demo (`launch_all.sh --fleet`).
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.

@@ -97,7 +97,7 @@ def world_to_map(x, y, start):
 
 def gt_free_points(step, z=0.25, margin=MARGIN):
     """World (x, y) cell centres that are free in the scene at height z."""
-    rects = [r for r in G.obstacles_at_height(z)]
+    rects = list(G.obstacles_at_height(z))
     hx, hy = L.ROOM_X / 2, L.ROOM_Y / 2
     pts = []
     n_x, n_y = int(L.ROOM_X / step), int(L.ROOM_Y / step)
@@ -194,7 +194,8 @@ def main():
     grid = GridMap(a.yaml)
     cov, n = coverage(grid, start)
     ok = cov >= a.min_coverage
-    print(f"MAP_COVERAGE {cov:.3f} of {n} ground-truth free cells (need >= {a.min_coverage}) -> {'PASS' if ok else 'FAIL'}")
+    print(f"MAP_COVERAGE {cov:.3f} of {n} ground-truth free cells "
+          f"(need >= {a.min_coverage}) -> {'PASS' if ok else 'FAIL'}")
     if a.min_iou is not None:
         strict = occupied_iou(grid, start, 0)
         tol = occupied_iou(grid, start, a.tol_cells)

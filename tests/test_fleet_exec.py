@@ -212,3 +212,35 @@ def test_redock_remeasures_with_lidar():
     slot = next(iter(ex.fleet.tasks.values())).plan["dst"]
     (_, p), = drops.items()
     assert abs(p[1] - (slot["dock"][1] - 0.06)) < 0.03 and abs(p[0] - slot["dock"][0]) < 0.03
+
+
+def test_stuck_off_centre_robot_does_not_freeze_fleet():
+    """Day 28 (Isaac run): an idle robot that stops 0.14 m off its cell centre
+    used to block every lockstep traffic tick. The watchdog counts a robot
+    that stood still for settle_s inside its target cell as arrived."""
+    ex = make()
+    for b, s in TASKS:
+        ex.submit(b, s)
+    poses, timers, dt = dict(STARTS), {}, 0.1
+    while ex.busy():
+        assert ex.t < 2000.0, ex.fleet.status()
+        cmds = ex.step(poses, dt)
+        for n, (v, w) in cmds.items():
+            x, y, th = poses[n]
+            tx, ty = ex.target[n]
+            # robot1 "sticks" (like Isaac contacts) when idle and 0.14 m short
+            if n == "robot1" and ex.phase[n][0] == "idle" \
+                    and 0.12 < math.hypot(tx - x, ty - y) < 0.16:
+                continue
+            poses[n] = (x + v * math.cos(th) * dt, y + v * math.sin(th) * dt, th + w * dt)
+        while ex.requests:
+            n, kind, box = ex.requests.pop(0)
+            timers[n] = [2.0, True]
+        for n in list(timers):
+            timers[n][0] -= dt
+            if timers[n][0] <= 0:
+                ex.action_done(n, timers.pop(n)[1])
+    rep = ex.report()
+    # robot1 is pinned 0.14 m off its cell on purpose, so 0.5 - 0.14 m is the floor
+    assert rep["tasks_done"] == 6 and rep["min_separation_m"] >= 0.35
+    assert rep["settled"] >= 1
