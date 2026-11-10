@@ -164,6 +164,7 @@ scripts/check_fleet_nav.sh   # Isaac + AMCL x3 + traffic-manager follower: 3 rob
 scripts/check_fleet_amcl.sh  # Isaac + AMCL x3 on saved map: each /robotN/amcl_pose within 0.2 m of ground truth (~1.5 min)
 scripts/check_fleet_sim.sh   # Isaac, 3 namespaced robots: 9 /robotN/{cmd_vel,odom,scan} topics, robotN/* TF, /robot2/cmd_vel moves only robot2, VRAM < 7 GB (~1 min)
 scripts/check_fleet_traffic.sh   # Isaac: head-on swap + crossing with reservations, GT min sep >= 0.45 m (~2.5 min)
+scripts/check_fleet_isaac.sh     # Isaac fleet scenario: 3 robots, 6 chained pick/drop tasks over /fleet/tasks, boxes at targets, metrics JSON (~8 min)
 scripts/check_fleet_manager.sh   # fleet_manager ROS 2 node (light backend): 6 tasks over /fleet/tasks all done, /fleet/status assignments (~30 s)
 scripts/check_fleet_scenario.sh  # light sim 3 robots / 9 tasks + metrics floor (no GPU, seconds)
 scripts/check_robustness.sh [N] [--slam]  # check_launch_all N times (default 3) + VRAM/RAM peaks (~4 min/run)
@@ -301,8 +302,18 @@ runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
   places head-on while robot2 crosses. The deadlock is resolved by priority
   yield. Ground-truth min separation was 0.51 m. Check:
   `scripts/check_fleet_traffic.sh` (~2.5 min; evaluator `scripts/eval_fleet_traffic.py`).
-- Next: Days 25–27 fleet_manager Isaac backend with full pick/drop tasks,
-  metrics and scripted scenario; Days 28–30 polish, docs, demo.
+- Day 25: fleet manager Isaac backend `scripts/fleet_isaac.py` (same
+  `/fleet/tasks` + `/fleet/status` interface; logic in
+  `warehouse_tasks/fleet_exec.py`). Nearest-free assignment, lockstep cell
+  reservations, then per robot: approach pose -> face rack -> lidar rack-face
+  dock (AMCL alone is ~0.1 m off) -> gripper via `gripper_cmd.py`. Before a
+  drop, the held box's `/boxes` position is compared with the slot centre and
+  the robot re-docks once to cancel the pick offset. A docked robot also
+  reserves the neighbour cell it overhangs ("ghost" cell). Report:
+  `out/fleet_isaac_report.json`. Check: `scripts/check_fleet_isaac.sh`.
+- Status: check_fleet_isaac.sh not passing yet (5/6; carried-box overhang stall).
+- Next: finish Day 25, then Day 26 `launch_all.sh --fleet` + bag/video; Day 27 fleet robustness 3x;
+  Days 28–30 polish, docs, demo.
 
 Notes: the headless sim runs faster than real time unless paced
 (`run_sim.py` paces to real time by default); nodes must use `use_sim_time`.

@@ -208,6 +208,8 @@ class TrafficManager:
         self.tick_no = 0
         self.deadlocks = 0
         self.yields = 0
+        self.pinned = set()     # Day 25: robots docked at a shelf; never asked to step aside
+        self.ghosts = {}        # Day 25: extra cell -> robot name (docked robot overhangs it)
 
     # ---- setup -------------------------------------------------------
     def add_robot(self, name, cell, priority=None):
@@ -229,7 +231,9 @@ class TrafficManager:
         a.path = p[1:]
 
     def occupied(self):
-        return {a.cell: a.name for a in self.agents.values()}
+        occ = dict(self.ghosts)
+        occ.update({a.cell: a.name for a in self.agents.values()})
+        return occ
 
     def all_done(self):
         return all(a.done and not a.hold_for for a in self.agents.values())
@@ -274,6 +278,8 @@ class TrafficManager:
         return None
 
     def _step_aside(self, mover, others):
+        if mover.name in self.pinned:
+            return False
         avoid = set()
         for o in others:
             avoid |= {o.cell, *o.path}
