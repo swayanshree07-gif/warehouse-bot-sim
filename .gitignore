@@ -23,3 +23,6 @@ ros_ws/log/
 *.mp4
 Personal/
 .pytest_cache/
+CLAUDE.md
+PLAN.md
+PROGRESS.md
