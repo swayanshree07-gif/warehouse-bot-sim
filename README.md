@@ -5,6 +5,15 @@ warehouse with SLAM (slam_toolbox) over ROS 2 Jazzy, navigates with Nav2, and
 moves boxes between shelves when it gets a task over a ROS 2 action. The 30-day
 plan is in [PLAN.md](PLAN.md), the daily log in [PROGRESS.md](PROGRESS.md).
 
+![Three robots moving boxes in the headless Isaac Sim warehouse](docs/media/isaac_fleet_demo.gif)
+
+*Fresh headless Isaac Sim 6.2 fleet run (`launch_all.sh --fleet --tasks --media`), 3.2x speed: overview camera (left) and robot1 chase camera (right).*
+
+| Light 2D fleet sim (same fleet + traffic code) | Fleet utilisation from real reports |
+|---|---|
+| ![lightsim](docs/media/lightsim_fleet.gif) | ![utilisation](docs/media/fleet_utilisation.png) |
+| `scripts/run_lightsim.py` scenario: 9 tasks, 0 collisions, 2 deadlocks resolved | Busy / traffic-wait / idle per robot (lightsim vs `out/fleet_isaac_report.json`) |
+
 ## Requirements (already on this machine)
 - Isaac Sim 6.2 pip install at `~/omniverse/isaacsim-env` (used as-is, never modified)
 - ROS 2 Jazzy at `/opt/ros/jazzy` (incl. slam_toolbox, nav2), Isaac Sim ROS
@@ -41,6 +50,14 @@ It runs `scripts/launch_fleet.sh`: fleet sim, per-robot AMCL, `fleet_isaac.py`,
 optional bag of `/robotN/*`, `/fleet/*`, `/boxes`, `/tf`, `/map` (about 55 MB for
 10 min) and overview + robot1 chase mp4s. `--tasks` sends the 6 demo tasks and
 stops when they are done. Logs: `out/logs/launch_fleet_*.log`.
+
+![Overview camera frames from the fresh run, about 8 s apart](docs/media/isaac_overview_strip.png)
+*Overview camera, one frame every 8 s from the fresh run. In this 6-minute
+window robot1 finished box_00 at t=151 s and robot3 finished box_04 at t=299 s;
+the full 6-task set takes about 9 minutes.*
+
+![Task timeline of the Isaac fleet run](docs/media/isaac_task_timeline.png)
+*Per-task assign-to-done times from `out/fleet_isaac_report.json` (6/6 tasks).*
 
 `launch_all.sh` starts `run_sim.sh` (spawn at world (-2, 0) = map origin), Nav2
 (AMCL on the packaged map, or slam_toolbox from an empty map with `--slam`) and
@@ -98,6 +115,9 @@ python3 scripts/nav_probe.py --sim-log out/logs/run_sim.log --goal 3.5,0,0   # N
 python3 scripts/gripper_cmd.py lift 0.03               # lift to 3 cm, waits until within 1 cm
 python3 scripts/gripper_cmd.py attach                  # / detach (Trigger services)
 ```
+
+![Occupancy maps built by slam_toolbox](docs/media/slam_maps.png)
+*Saved slam_toolbox maps (`out/maps/*.pgm`): the packaged warehouse map and a later re-check run; the four racks and walls are visible.*
 Nav2 (`config/nav2.yaml`): map_server + AMCL (starts at the spawn pose), NavFn
 (A*) planner, Regulated Pure Pursuit controller (0.4 m/s, publishes `Twist` on
 `/cmd_vel` directly), behaviors, bt_navigator, waypoint_follower; footprint
@@ -188,6 +208,16 @@ Sim checks also require an `*_OK`/`SIM_READY` marker in their logs, because
 `SimulationApp.close()` can end the process with exit code 0 before `sys.exit()`
 runs. Logs go to `out/logs/`, maps to `out/maps/` (both git-ignored).
 
+Sample output (run during the visuals pass, CPU only):
+```text
+$ .venv/bin/python -m pytest -q tests
+170 passed, 1 skipped in 2.19s
+$ python3 scripts/run_lightsim.py
+{"sim_time_s": 96.0, "tasks_done": 9, "tasks_failed": 0, "rejected": 0, "min_separation_m": 0.5,
+ "collisions": 0, "deadlocks_resolved": 2, ... "tasks_per_hour": 337.5, "mean_idle_pct": 18.4 ...}
+PASS
+```
+
 ## Architecture
 ```
                        ROS 2 Jazzy, ROS_DOMAIN_ID=21, localhost only
@@ -215,6 +245,46 @@ Nav2 + AMCL or slam_toolbox, and the `task_manager` MoveBox action server.
 The light 2D simulator (`warehouse_tasks/lightsim.py`) runs the same fleet
 logic without a GPU for fast tests.
 
+### Data flow (Mermaid)
+```mermaid
+flowchart LR
+  C[fleet_client.py] -- "/fleet/tasks<br/>'box_id shelf_id'" --> FM
+  subgraph FM[fleet_isaac.py / fleet_manager]
+    F[fleet.py<br/>nearest-free assignment] --> T[traffic.py<br/>A* + cell reservations]
+    T --> R[rack_align.py<br/>lidar docking]
+    F --> M[metrics.py]
+  end
+  subgraph SIM[Isaac Sim 6.2 headless]
+    S[run_fleet_sim.py<br/>3 robots, 4 racks, 10 boxes]
+    BH[box_handler<br/>lift + gripper]
+  end
+  FM -- "/robotN/cmd_vel" --> S
+  FM -- "lift / gripper srv" --> BH
+  S -- "/robotN/scan, odom, TF" --> L[map_server + AMCL x3]
+  L -- "map->odom TF" --> FM
+  BH -- "/boxes" --> FM
+  FM -- "/fleet/status JSON" --> C
+  S -. "/robotN/*, /fleet/*, /tf" .-> B[(rosbag mcap)]
+  S -. "camera frames" .-> V[media.py -> mp4]
+```
+
+### Fleet task pipeline (Mermaid)
+```mermaid
+flowchart TD
+  A[Task 'box shelf' received] --> B{box free and<br/>target slot free?}
+  B -- no --> Q[keep pending, retry] --> B
+  B -- yes --> D[assign nearest idle robot<br/>by roadmap path length]
+  D --> E[plan A* on 0.5 m grid<br/>reserve cells]
+  E --> F{next cell reserved<br/>by another robot?}
+  F -- yes --> G{deadlock?}
+  G -- yes --> H[lower priority robot yields<br/>to a refuge cell] --> E
+  G -- no --> W[wait one tick] --> F
+  F -- no --> P[move to pick pose]
+  P --> K[lidar rack-face dock,<br/>lift + gripper attach]
+  K --> X[route to drop pose] --> Y[dock, detach, lower lift]
+  Y --> Z[task done: update registry,<br/>metrics, robot idle]
+```
+
 ## Fresh-shell walkthrough
 ```bash
 cd ~/thirty-days/projects/warehouse-bot-sim
@@ -240,6 +310,21 @@ scripts/launch_all.sh --fleet --tasks --record --media   # demo: bag + mp4
 | `out/` grows large | bags/media are git-ignored; delete old `out/bags/run_*` (keep < 4 GB) |
 
 ## Layout
+
+```mermaid
+flowchart LR
+  root[warehouse-bot-sim] --> env[env.sh<br/>ROS_DOMAIN_ID=21]
+  root --> sim[sim/<br/>Isaac scene, robots, sensors,<br/>ROS graphs, media capture]
+  root --> scripts[scripts/<br/>launch_all / launch_fleet,<br/>fleet_isaac, check_*.sh]
+  root --> ws[ros_ws/src/]
+  ws --> bu[warehouse_bringup<br/>URDF, Nav2/SLAM params, map, registry]
+  ws --> it[warehouse_interfaces<br/>MoveBox.action, BoxState]
+  ws --> tk[warehouse_tasks<br/>task_manager, fleet, traffic, lightsim]
+  root --> tests[tests/<br/>pytest, no GPU]
+  root --> tools[tools/make_media.py<br/>README media]
+  root --> docs[docs/media/<br/>GIFs + charts]
+  root --> out[out/<br/>logs, maps, bags, videos - git-ignored]
+```
 | Path | Contents |
 |---|---|
 | `env.sh` | project environment |
@@ -266,6 +351,7 @@ scripts/launch_all.sh --fleet --tasks --record --media   # demo: bag + mp4
 | `ros_ws/src/warehouse_tasks` (fleet) | `fleet.py`, `traffic.py`, `fleet_exec.py`, `fleet_manager.py`, `lightsim.py`, `metrics.py` |
 | `scripts/fleet_isaac.py`, `launch_fleet.sh` | fleet manager Isaac backend, fleet launcher |
 | `tests/` | pytest tests that run without Isaac Sim |
+| `tools/make_media.py`, `docs/media/` | regenerates the README charts and lightsim GIF from real runs/reports |
 | `ros_ws/src/` | own ROS 2 packages (colcon) |
 | `out/` | logs, maps, bags, media (git-ignored, keep < 4 GB) |
 
